@@ -26,3 +26,15 @@ func declareRandomQueue(ch *amqp.Channel) (amqp.Queue, error) {
 		nil,   // arguments?
 	)
 }
+
+func declareEmailExchange(ch *amqp.Channel) error {
+	return ch.ExchangeDeclare(
+		"email_events",
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+}
