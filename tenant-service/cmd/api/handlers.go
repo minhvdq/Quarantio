@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"tenant/embeddings"
 )
 
 func (app *Config) RegisterOrganization(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +45,14 @@ func (app *Config) RegisterOrganization(w http.ResponseWriter, r *http.Request) 
 }
 
 func (app *Config) UploadPolicy(w http.ResponseWriter, r *http.Request) {
-	app.writeJSON(w, http.StatusNotImplemented, jsonResponse{Error: true, Message: "not implemented"})
+	ctx := r.Context()
+	embedder, err := embeddings.NewGeminiEmbedder(ctx, app.GeminiKey)
+	if err != nil {
+		app.errorJSON(w, err, http.StatusInternalServerError)
+		return
+	}
+	defer embedder.Close()
+	app.uploadPolicyWithEmbedder(w, r, embedder)
 }
 
 func (app *Config) uploadPolicyWithEmbedder(w http.ResponseWriter, r *http.Request, embedder Embedder) {
