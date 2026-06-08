@@ -95,6 +95,7 @@ services:
   
   mongo:
     image: 'mongo:4.2.16-bionic'
+    restart: always
     ports:
       - "27017:27017"
     environment:
@@ -112,6 +113,8 @@ services:
     deploy:
       mode: replicated
       replicas: 1
+    environment:
+      REDIS_PASSWORD: "password"
     volumes:
       - ./db-data/redis/:/data
 
