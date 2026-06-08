@@ -79,7 +79,7 @@ services:
       DSN: "host=postgres port=5432 user=postgres password=password dbname=users sslmode=disable timezone=UTC connect_timeout=5"
 
   postgres:
-    image: 'postgres:14.2'
+    image: 'pgvector/pgvector:pg14'
     ports:
       - "5432:5432"
     restart: always
@@ -102,7 +102,18 @@ services:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password
     volumes:
-      - ./db-data/mongo/:/data/db    
+      - ./db-data/mongo/:/data/db
+
+  redis:
+    image: 'redis:7-alpine'
+    ports:
+      - "6379:6379"
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+    volumes:
+      - ./db-data/redis/:/data
 
   mailhog:
     image: 'mailhog/mailhog'
