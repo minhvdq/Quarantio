@@ -174,40 +174,20 @@ func (app *Config) authenticate(w http.ResponseWriter, a AuthPayload) {
 }
 
 func (app *Config) sendMail(w http.ResponseWriter, msg MailPayload) {
-	jsonData, _ := json.MarshalIndent(msg, "", "\t")
-
-	// call the mail servie
-	mailServiecURL := "http://mail-service/send"
-
-	// Post to mail service
-	request, err := http.NewRequest("POST", mailServiecURL, bytes.NewBuffer(jsonData))
+	j, err := json.Marshal(msg)
 	if err != nil {
 		app.errorJSON(w, err)
 		return
 	}
 
-	request.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-
-	response, err := client.Do(request)
-	if err != nil {
+	if err := app.MailPublisher.Push(string(j), "email.ingest"); err != nil {
 		app.errorJSON(w, err)
 		return
 	}
 
-	defer response.Body.Close()
-
-	// Make sure to get the right status code
-	if response.StatusCode != http.StatusAccepted {
-		app.errorJSON(w, errors.New("error calling mail service"))
-		return
-	}
-
-	// Send back json
 	var payload jsonResponse
 	payload.Error = false
-	payload.Message = "Message sent to " + msg.To
+	payload.Message = "Message queued for compliance review"
 
 	app.writeJSON(w, http.StatusAccepted, payload)
 }
