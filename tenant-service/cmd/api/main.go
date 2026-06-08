@@ -67,9 +67,10 @@ func openDB(dsn string) (*sql.DB, error) {
 	return db, db.Ping()
 }
 
+var counts int64
+
 func connectToDB() *sql.DB {
 	dsn := os.Getenv("DSN")
-	var counts int64
 
 	for {
 		conn, err := openDB(dsn)
