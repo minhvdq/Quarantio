@@ -92,6 +92,19 @@ services:
       DSN: "host=postgres port=5432 user=postgres password=password dbname=users sslmode=disable timezone=UTC connect_timeout=5"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
 
+  ai-compliance-service:
+    build:
+      context: ./../ai-compliance-service
+      dockerfile: ./../ai-compliance-service/ai-compliance-service.dockerfile
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+    environment:
+      DSN: "host=postgres port=5432 user=postgres password=password dbname=users sslmode=disable timezone=UTC connect_timeout=5"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      MAIL_SERVICE_URL: "http://mail-service/send"
+
   postgres:
     image: 'pgvector/pgvector:pg14'
     ports:
