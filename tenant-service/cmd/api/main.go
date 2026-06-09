@@ -43,10 +43,15 @@ func main() {
 		log.Panic("cannot connect to postgres")
 	}
 
+	geminiKey := os.Getenv("GEMINI_API_KEY")
+	if geminiKey == "" {
+		log.Fatal("GEMINI_API_KEY is required")
+	}
+
 	app := Config{
 		DB:        conn,
 		Store:     data.New(conn),
-		GeminiKey: os.Getenv("GEMINI_API_KEY"),
+		GeminiKey: geminiKey,
 	}
 
 	srv := &http.Server{
