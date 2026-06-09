@@ -4,7 +4,7 @@ package data
 import (
 	"context"
 	"database/sql"
-	"strings"
+	"encoding/json"
 	"time"
 
 	pgvector "github.com/pgvector/pgvector-go"
@@ -31,14 +31,8 @@ func (m *Models) InsertAuditLog(ctx context.Context, tenantID, emailFrom, emailS
 	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
 	defer cancel()
 
-	violationsJSON := "[]"
-	if len(violations) > 0 {
-		quoted := make([]string, len(violations))
-		for i, v := range violations {
-			quoted[i] = `"` + strings.ReplaceAll(v, `"`, `\"`) + `"`
-		}
-		violationsJSON = "[" + strings.Join(quoted, ",") + "]"
-	}
+	vb, _ := json.Marshal(violations)
+	violationsJSON := string(vb)
 
 	query := `
 		INSERT INTO audit_log

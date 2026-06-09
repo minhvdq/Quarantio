@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -81,11 +82,8 @@ func (app *Config) processEmail(
 	}
 
 	if decision.Verdict == VerdictClean || decision.Verdict == VerdictLow {
-		if email.TenantID != "" {
-			_ = app.Store.InsertEmailHistory(ctx, email.TenantID, combined, vec, decision.Verdict, decision.Violations)
-		} else {
-			// No tenant ID — still call to satisfy the test expectation.
-			_ = app.Store.InsertEmailHistory(ctx, "", combined, vec, decision.Verdict, decision.Violations)
+		if err := app.Store.InsertEmailHistory(ctx, email.TenantID, combined, vec, decision.Verdict, decision.Violations); err != nil {
+			log.Printf("InsertEmailHistory (best-effort): %v", err)
 		}
 	}
 

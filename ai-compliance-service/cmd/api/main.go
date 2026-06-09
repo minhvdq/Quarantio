@@ -135,7 +135,8 @@ func (a *dataStoreAdapter) InsertAuditLog(ctx context.Context, entry AuditEntry)
 }
 
 func (a *dataStoreAdapter) InsertEmailHistory(ctx context.Context, tenantID, content string, embedding []float32, verdict Verdict, violations []string) error {
-	return a.m.InsertEmailHistory(ctx, tenantID, content, embedding, string(verdict), fmt.Sprintf("%v", violations))
+	vb, _ := json.Marshal(violations)
+	return a.m.InsertEmailHistory(ctx, tenantID, content, embedding, string(verdict), string(vb))
 }
 
 func (a *dataStoreAdapter) QueryPolicyChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error) {
@@ -269,10 +270,14 @@ func connectToDB() *sql.DB {
 }
 
 func connectToRabbit() *amqp.Connection {
+	rabbitURL := os.Getenv("RABBITMQ_URL")
+	if rabbitURL == "" {
+		rabbitURL = "amqp://guest:guest@rabbitmq"
+	}
 	var rc int64
 	var backOff = 1 * time.Second
 	for {
-		conn, err := amqp.Dial("amqp://guest:guest@rabbitmq")
+		conn, err := amqp.Dial(rabbitURL)
 		if err != nil {
 			fmt.Println("RabbitMQ not ready...")
 			rc++
