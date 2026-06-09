@@ -1,34 +1,25 @@
 package compliance
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"net/http"
 )
 
 type embedFnType func(ctx context.Context, text string) ([]float32, error)
 
 type GeminiEmbedder struct {
-	client  *genai.Client
-	model   *genai.EmbeddingModel
 	embedFn embedFnType
 }
 
-func NewGeminiEmbedder(ctx context.Context, apiKey string) (*GeminiEmbedder, error) {
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		return nil, err
-	}
-	m := client.EmbeddingModel("text-embedding-004")
-	g := &GeminiEmbedder{client: client, model: m}
+// NewGeminiEmbedder creates an embedder that calls the Gemini v1 REST API directly.
+// The genai SDK defaults to v1beta, which does not support text-embedding-004.
+func NewGeminiEmbedder(_ context.Context, apiKey string) (*GeminiEmbedder, error) {
+	g := &GeminiEmbedder{}
 	g.embedFn = func(ctx context.Context, text string) ([]float32, error) {
-		res, err := m.EmbedContent(ctx, genai.Text(text))
-		if err != nil {
-			return nil, err
-		}
-		return res.Embedding.Values, nil
+		return embedViaREST(ctx, apiKey, text)
 	}
 	return g, nil
 }
@@ -37,11 +28,7 @@ func (g *GeminiEmbedder) Embed(ctx context.Context, text string) ([]float32, err
 	return g.embedFn(ctx, text)
 }
 
-func (g *GeminiEmbedder) Close() {
-	if g.client != nil {
-		g.client.Close()
-	}
-}
+func (g *GeminiEmbedder) Close() {}
 
 // EmbedEmail concatenates email fields and embeds them.
 // Returns the embedding vector and the combined text (used for storing in email_history).
@@ -52,4 +39,46 @@ func (g *GeminiEmbedder) EmbedEmail(ctx context.Context, from, to, subject, body
 		return nil, "", err
 	}
 	return vec, combined, nil
+}
+
+func embedViaREST(ctx context.Context, apiKey, text string) ([]float32, error) {
+	const url = "https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent"
+	payload, err := json.Marshal(map[string]any{
+		"model": "models/text-embedding-004",
+		"content": map[string]any{
+			"parts": []map[string]any{{"text": text}},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", url+"?key="+apiKey, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Embedding struct {
+			Values []float32 `json:"values"`
+		} `json:"embedding"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode embedding response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("embedding API: %s", result.Error.Message)
+	}
+	if len(result.Embedding.Values) == 0 {
+		return nil, fmt.Errorf("empty embedding response")
+	}
+	return result.Embedding.Values, nil
 }
