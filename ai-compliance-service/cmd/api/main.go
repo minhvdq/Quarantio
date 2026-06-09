@@ -163,6 +163,33 @@ func (a *dataStoreAdapter) QueryHistoryChunks(ctx context.Context, tenantID stri
 	return chunks, nil
 }
 
+// ragStoreAdapter wraps data.Models to satisfy the compliance.RAGStore interface.
+type ragStoreAdapter struct{ m *data.Models }
+
+func (r *ragStoreAdapter) QueryPolicyChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]compliance.RAGChunk, error) {
+	rows, err := r.m.QueryPolicyChunks(ctx, tenantID, embedding, limit)
+	if err != nil {
+		return nil, err
+	}
+	chunks := make([]compliance.RAGChunk, len(rows))
+	for i, row := range rows {
+		chunks[i] = compliance.RAGChunk{Content: row.Content, Source: row.Source}
+	}
+	return chunks, nil
+}
+
+func (r *ragStoreAdapter) QueryHistoryChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]compliance.RAGChunk, error) {
+	rows, err := r.m.QueryHistoryChunks(ctx, tenantID, embedding, limit)
+	if err != nil {
+		return nil, err
+	}
+	chunks := make([]compliance.RAGChunk, len(rows))
+	for i, row := range rows {
+		chunks[i] = compliance.RAGChunk{Content: row.Content, Source: row.Source}
+	}
+	return chunks, nil
+}
+
 var counts int64
 
 func main() {
@@ -206,7 +233,7 @@ func main() {
 	}
 	defer embedder.Close()
 
-	agent, err := compliance.NewGeminiAgent(ctx, geminiKey)
+	agent, err := compliance.NewGeminiAgent(ctx, geminiKey, &ragStoreAdapter{m: data.New(conn)})
 	if err != nil {
 		log.Panicf("agent init: %v", err)
 	}
