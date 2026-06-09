@@ -122,10 +122,6 @@ type dataStoreAdapter struct {
 	m *data.Models
 }
 
-func newDataStore(db *sql.DB) Store {
-	return &dataStoreAdapter{m: data.New(db)}
-}
-
 func (a *dataStoreAdapter) InsertAuditLog(ctx context.Context, entry AuditEntry) error {
 	return a.m.InsertAuditLog(ctx,
 		entry.TenantID, entry.EmailFrom, entry.Subject,
