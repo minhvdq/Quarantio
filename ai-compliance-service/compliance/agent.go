@@ -19,6 +19,27 @@ type verdictJSON struct {
 	RemediatedBody string   `json:"remediated_body"`
 }
 
+type policyToolResult struct {
+	PolicyMatch bool        `json:"policy_match"`
+	Chunks      []chunkItem `json:"chunks,omitempty"`
+	Reason      string      `json:"reason,omitempty"`
+}
+
+type chunkItem struct {
+	Source  string `json:"source"`
+	Content string `json:"content"`
+}
+
+type precedentToolResult struct {
+	Precedents []precedentItem `json:"precedents"`
+	Reason     string          `json:"reason,omitempty"`
+}
+
+type precedentItem struct {
+	Verdict string `json:"verdict"`
+	Summary string `json:"summary"`
+}
+
 // These types mirror the main package to avoid import cycle.
 // The agentAdapter in main.go bridges them.
 type EmailMessage struct {
@@ -36,13 +57,20 @@ type Decision struct {
 	RemediatedBody string
 }
 
+// RAGStore provides pgvector similarity queries for in-loop tool calls.
+type RAGStore interface {
+	QueryPolicyChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error)
+	QueryHistoryChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error)
+}
+
 // GeminiAgent runs a multi-turn Gemini function-calling compliance loop.
 type GeminiAgent struct {
 	client   *genai.Client
 	embedder *GeminiEmbedder
+	store    RAGStore
 }
 
-func NewGeminiAgent(ctx context.Context, apiKey string) (*GeminiAgent, error) {
+func NewGeminiAgent(ctx context.Context, apiKey string, store RAGStore) (*GeminiAgent, error) {
 	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return nil, err
@@ -52,7 +80,7 @@ func NewGeminiAgent(ctx context.Context, apiKey string) (*GeminiAgent, error) {
 		client.Close()
 		return nil, err
 	}
-	return &GeminiAgent{client: client, embedder: embedder}, nil
+	return &GeminiAgent{client: client, embedder: embedder, store: store}, nil
 }
 
 func (a *GeminiAgent) Close() {
@@ -291,15 +319,24 @@ func toolCheckPhishing(content, sender string) string {
 }
 
 func (a *GeminiAgent) toolCheckPolicyViolation(ctx context.Context, content, tenantID string) string {
-	if tenantID == "" || a.embedder == nil {
-		return `{"policy_match":false,"reason":"no tenant context"}`
+	if tenantID == "" || a.store == nil {
+		out, _ := json.Marshal(policyToolResult{PolicyMatch: false, Reason: "no tenant context"})
+		return string(out)
 	}
 	vec, err := a.embedder.Embed(ctx, content)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
-	_ = vec
-	return `{"policy_match":false,"reason":"store not wired in agent loop"}`
+	chunks, err := a.store.QueryPolicyChunks(ctx, tenantID, vec, 3)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	items := make([]chunkItem, len(chunks))
+	for i, c := range chunks {
+		items[i] = chunkItem{Source: c.Source, Content: c.Content}
+	}
+	out, _ := json.Marshal(policyToolResult{PolicyMatch: len(chunks) > 0, Chunks: items})
+	return string(out)
 }
 
 func toolCheckExfiltration(recipients, content string) string {
@@ -320,15 +357,24 @@ func toolCheckExfiltration(recipients, content string) string {
 }
 
 func (a *GeminiAgent) toolRetrievePrecedent(ctx context.Context, content, tenantID string) string {
-	if tenantID == "" || a.embedder == nil {
-		return `{"precedents":[],"reason":"no tenant context"}`
+	if tenantID == "" || a.store == nil {
+		out, _ := json.Marshal(precedentToolResult{Precedents: []precedentItem{}, Reason: "no tenant context"})
+		return string(out)
 	}
 	vec, err := a.embedder.Embed(ctx, content)
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
-	_ = vec
-	return `{"precedents":[],"reason":"store not wired in agent loop"}`
+	chunks, err := a.store.QueryHistoryChunks(ctx, tenantID, vec, 3)
+	if err != nil {
+		return fmt.Sprintf(`{"error":%q}`, err.Error())
+	}
+	items := make([]precedentItem, len(chunks))
+	for i, c := range chunks {
+		items[i] = precedentItem{Verdict: c.Source, Summary: c.Content}
+	}
+	out, _ := json.Marshal(precedentToolResult{Precedents: items})
+	return string(out)
 }
 
 func (a *GeminiAgent) toolRemediateContent(ctx context.Context, content, violations string) string {
