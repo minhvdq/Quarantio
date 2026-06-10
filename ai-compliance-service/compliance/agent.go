@@ -1,18 +1,22 @@
 package compliance
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
 )
 
-// verdictJSON is what Gemini must return as its final text response.
+const (
+	mistralChatURL = "https://api.mistral.ai/v1/chat/completions"
+	mistralModel   = "mistral-small-latest"
+)
+
+// verdictJSON is what Mistral must return as its final text response.
 type verdictJSON struct {
 	Verdict        string   `json:"verdict"`
 	Violations     []string `json:"violations"`
@@ -64,97 +68,131 @@ type RAGStore interface {
 	QueryHistoryChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error)
 }
 
-// GeminiAgent runs a multi-turn Gemini function-calling compliance loop.
-type GeminiAgent struct {
-	client   *genai.Client
-	embedder *GeminiEmbedder
+// --- Mistral HTTP types ---
+
+type mistralMessage struct {
+	Role       string            `json:"role"`
+	Content    string            `json:"content,omitempty"`
+	ToolCalls  []mistralToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string            `json:"tool_call_id,omitempty"`
+	Name       string            `json:"name,omitempty"`
+}
+
+type mistralToolCall struct {
+	ID       string              `json:"id"`
+	Type     string              `json:"type"`
+	Function mistralFunctionCall `json:"function"`
+}
+
+type mistralFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type mistralTool struct {
+	Type     string          `json:"type"`
+	Function mistralFunction `json:"function"`
+}
+
+type mistralFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type mistralRequest struct {
+	Model    string           `json:"model"`
+	Messages []mistralMessage `json:"messages"`
+	Tools    []mistralTool    `json:"tools,omitempty"`
+}
+
+type mistralResponse struct {
+	Choices []struct {
+		Message struct {
+			Role      string           `json:"role"`
+			Content   string           `json:"content"`
+			ToolCalls []mistralToolCall `json:"tool_calls"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
+
+// MistralAgent runs a multi-turn Mistral function-calling compliance loop.
+type MistralAgent struct {
+	apiKey   string
+	embedder *MistralEmbedder
 	store    RAGStore
 }
 
-func NewGeminiAgent(ctx context.Context, apiKey string, store RAGStore) (*GeminiAgent, error) {
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+func NewMistralAgent(_ context.Context, apiKey string, store RAGStore) (*MistralAgent, error) {
+	embedder, err := NewMistralEmbedder(context.Background(), apiKey)
 	if err != nil {
 		return nil, err
 	}
-	embedder, err := NewGeminiEmbedder(ctx, apiKey)
-	if err != nil {
-		client.Close()
-		return nil, err
-	}
-	return &GeminiAgent{client: client, embedder: embedder, store: store}, nil
+	return &MistralAgent{apiKey: apiKey, embedder: embedder, store: store}, nil
 }
 
-func (a *GeminiAgent) Close() {
-	if a.client != nil {
-		a.client.Close()
-	}
-	if a.embedder != nil {
-		a.embedder.Close()
-	}
-}
+func (a *MistralAgent) Close() {}
 
-// RunLoop runs the Gemini agent loop and returns a compliance Decision.
+// RunLoop runs the Mistral agent loop and returns a compliance Decision.
 // policyChunks and historyChunks are pre-fetched RAG context injected into the system prompt.
-func (a *GeminiAgent) RunLoop(ctx context.Context, email EmailMessage, policyChunks, historyChunks []RAGChunk) (*Decision, error) {
-	model := a.client.GenerativeModel("gemini-2.0-flash")
-	model.Tools = buildTools()
-	model.SystemInstruction = &genai.Content{
-		Parts: []genai.Part{genai.Text(buildSystemPrompt(policyChunks, historyChunks))},
-	}
-
-	cs := model.StartChat()
-
-	emailContent := fmt.Sprintf(
-		"Analyze this email for compliance violations:\n\nFROM: %s\nTO: %s\nSUBJECT: %s\nBODY:\n%s",
-		email.From, email.To, email.Subject, email.Message,
-	)
-
-	resp, err := sendWithRetry(ctx, cs, genai.Text(emailContent))
-	if err != nil {
-		return nil, fmt.Errorf("gemini initial send: %w", err)
+func (a *MistralAgent) RunLoop(ctx context.Context, email EmailMessage, policyChunks, historyChunks []RAGChunk) (*Decision, error) {
+	tools := buildMistralTools()
+	messages := []mistralMessage{
+		{Role: "system", Content: buildSystemPrompt(policyChunks, historyChunks)},
+		{Role: "user", Content: fmt.Sprintf(
+			"Analyze this email for compliance violations:\n\nFROM: %s\nTO: %s\nSUBJECT: %s\nBODY:\n%s",
+			email.From, email.To, email.Subject, email.Message,
+		)},
 	}
 
 	for i := 0; i < 10; i++ {
-		if len(resp.Candidates) == 0 {
-			return nil, fmt.Errorf("gemini returned no candidates")
+		resp, err := sendMistralWithRetry(ctx, a.apiKey, mistralRequest{
+			Model:    mistralModel,
+			Messages: messages,
+			Tools:    tools,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mistral chat: %w", err)
 		}
-		candidate := resp.Candidates[0]
+		if len(resp.Choices) == 0 {
+			return nil, fmt.Errorf("mistral returned no choices")
+		}
+		choice := resp.Choices[0]
 
-		var toolResponses []genai.Part
-		var finalText string
-
-		for _, part := range candidate.Content.Parts {
-			switch p := part.(type) {
-			case genai.FunctionCall:
-				result := a.executeTool(ctx, p.Name, p.Args, email.TenantID)
-				toolResponses = append(toolResponses, genai.FunctionResponse{
-					Name:     p.Name,
-					Response: map[string]any{"result": result},
+		if len(choice.Message.ToolCalls) > 0 {
+			messages = append(messages, mistralMessage{
+				Role:      "assistant",
+				ToolCalls: choice.Message.ToolCalls,
+			})
+			for _, tc := range choice.Message.ToolCalls {
+				var args map[string]any
+				_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				result := a.executeTool(ctx, tc.Function.Name, args, email.TenantID)
+				messages = append(messages, mistralMessage{
+					Role:       "tool",
+					Content:    result,
+					ToolCallID: tc.ID,
+					Name:       tc.Function.Name,
 				})
-			case genai.Text:
-				finalText = string(p)
-			}
-		}
-
-		if len(toolResponses) > 0 {
-			resp, err = sendWithRetry(ctx, cs, toolResponses...)
-			if err != nil {
-				return nil, fmt.Errorf("gemini tool response: %w", err)
 			}
 			continue
 		}
 
-		return parseVerdict(finalText)
+		return parseVerdict(choice.Message.Content)
 	}
 
 	return nil, fmt.Errorf("agent loop exceeded max iterations")
 }
 
-// sendWithRetry retries SendMessage on 429 rate-limit errors with exponential backoff.
-func sendWithRetry(ctx context.Context, cs *genai.ChatSession, parts ...genai.Part) (*genai.GenerateContentResponse, error) {
+func sendMistralWithRetry(ctx context.Context, apiKey string, req mistralRequest) (*mistralResponse, error) {
 	backoff := 10 * time.Second
 	for attempt := 0; attempt < 4; attempt++ {
-		resp, err := cs.SendMessage(ctx, parts...)
+		resp, err := sendMistralOnce(ctx, apiKey, req)
 		if err == nil {
 			return resp, nil
 		}
@@ -168,8 +206,39 @@ func sendWithRetry(ctx context.Context, cs *genai.ChatSession, parts ...genai.Pa
 			backoff *= 2
 		}
 	}
-	resp, err := cs.SendMessage(ctx, parts...)
-	return resp, err
+	return sendMistralOnce(ctx, apiKey, req)
+}
+
+func sendMistralOnce(ctx context.Context, apiKey string, req mistralRequest) (*mistralResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", mistralChatURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("mistral 429: rate limited")
+	}
+
+	var result mistralResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode mistral response: %w", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("mistral error: %s", result.Error.Message)
+	}
+	return &result, nil
 }
 
 func buildSystemPrompt(policy, history []RAGChunk) string {
@@ -204,78 +273,40 @@ Verdicts:
 	return sb.String()
 }
 
-func buildTools() []*genai.Tool {
-	str := func(desc string) *genai.Schema {
-		return &genai.Schema{Type: genai.TypeString, Description: desc}
+func schemaObj(props map[string]string, required []string) json.RawMessage {
+	properties := make(map[string]map[string]string, len(props))
+	for k, desc := range props {
+		properties[k] = map[string]string{"type": "string", "description": desc}
 	}
-	return []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{
-		{
-			Name:        "scan_pii",
-			Description: "Scan text for PII: SSNs, credit card numbers, phone numbers",
-			Parameters: &genai.Schema{
-				Type:       genai.TypeObject,
-				Properties: map[string]*genai.Schema{"content": str("Text to scan for PII")},
-				Required:   []string{"content"},
-			},
-		},
-		{
-			Name:        "check_phishing",
-			Description: "Detect phishing signals: urgency language, credential requests, spoofed sender, lookalike domains",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"content": str("Email body text"),
-					"sender":  str("Sender email address"),
-				},
-				Required: []string{"content", "sender"},
-			},
-		},
-		{
-			Name:        "check_policy_violation",
-			Description: "RAG search against the tenant's uploaded compliance policies",
-			Parameters: &genai.Schema{
-				Type:       genai.TypeObject,
-				Properties: map[string]*genai.Schema{"content": str("Text to check against policy")},
-				Required:   []string{"content"},
-			},
-		},
-		{
-			Name:        "check_exfiltration",
-			Description: "Flag data exfiltration: bulk recipients, encoded content, confidential leaks",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"recipients": str("Comma-separated recipient addresses"),
-					"content":    str("Email body text"),
-				},
-				Required: []string{"recipients", "content"},
-			},
-		},
-		{
-			Name:        "retrieve_precedent",
-			Description: "RAG search against historical approved/flagged emails for similar past verdicts",
-			Parameters: &genai.Schema{
-				Type:       genai.TypeObject,
-				Properties: map[string]*genai.Schema{"content": str("Email content to find precedents for")},
-				Required:   []string{"content"},
-			},
-		},
-		{
-			Name:        "remediate_content",
-			Description: "Rewrite or redact email body to remove LOW-severity violations while preserving intent",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"content":    str("Original email body"),
-					"violations": str("Comma-separated violations to remediate"),
-				},
-				Required: []string{"content", "violations"},
-			},
-		},
-	}}}
+	b, _ := json.Marshal(map[string]any{
+		"type":       "object",
+		"properties": properties,
+		"required":   required,
+	})
+	return b
 }
 
-func (a *GeminiAgent) executeTool(ctx context.Context, name string, args map[string]any, tenantID string) string {
+func buildMistralTools() []mistralTool {
+	tool := func(name, desc string, params json.RawMessage) mistralTool {
+		return mistralTool{Type: "function", Function: mistralFunction{Name: name, Description: desc, Parameters: params}}
+	}
+	return []mistralTool{
+		tool("scan_pii", "Scan text for PII: SSNs, credit card numbers, phone numbers",
+			schemaObj(map[string]string{"content": "Text to scan for PII"}, []string{"content"})),
+		tool("check_phishing", "Detect phishing signals: urgency language, credential requests, spoofed sender, lookalike domains",
+			schemaObj(map[string]string{"content": "Email body text", "sender": "Sender email address"}, []string{"content", "sender"})),
+		tool("check_policy_violation", "RAG search against the tenant's uploaded compliance policies",
+			schemaObj(map[string]string{"content": "Text to check against policy"}, []string{"content"})),
+		tool("check_exfiltration", "Flag data exfiltration: bulk recipients, encoded content, confidential leaks",
+			schemaObj(map[string]string{"recipients": "Comma-separated recipient addresses", "content": "Email body text"}, []string{"recipients", "content"})),
+		tool("retrieve_precedent", "RAG search against historical approved/flagged emails for similar past verdents",
+			schemaObj(map[string]string{"content": "Email content to find precedents for"}, []string{"content"})),
+		tool("remediate_content", "Rewrite or redact email body to remove LOW-severity violations while preserving intent",
+			schemaObj(map[string]string{"content": "Original email body", "violations": "Comma-separated violations to remediate"}, []string{"content", "violations"})),
+	}
+}
+
+func (a *MistralAgent) executeTool(ctx context.Context, name string, args map[string]any, tenantID string) string {
 	str := func(key string) string {
 		v, _ := args[key].(string)
 		return v
@@ -341,7 +372,7 @@ func toolCheckPhishing(content, sender string) string {
 	return fmt.Sprintf(`{"phishing_risk":"high","signals":%s}`, s)
 }
 
-func (a *GeminiAgent) toolCheckPolicyViolation(ctx context.Context, content, tenantID string) string {
+func (a *MistralAgent) toolCheckPolicyViolation(ctx context.Context, content, tenantID string) string {
 	if tenantID == "" || a.store == nil || a.embedder == nil {
 		out, _ := json.Marshal(policyToolResult{PolicyMatch: false, Reason: "no tenant context"})
 		return string(out)
@@ -379,7 +410,7 @@ func toolCheckExfiltration(recipients, content string) string {
 	return fmt.Sprintf(`{"exfiltration_risk":"high","signals":%s}`, s)
 }
 
-func (a *GeminiAgent) toolRetrievePrecedent(ctx context.Context, content, tenantID string) string {
+func (a *MistralAgent) toolRetrievePrecedent(ctx context.Context, content, tenantID string) string {
 	if tenantID == "" || a.store == nil || a.embedder == nil {
 		out, _ := json.Marshal(precedentToolResult{Precedents: []precedentItem{}, Reason: "no tenant context"})
 		return string(out)
@@ -400,21 +431,22 @@ func (a *GeminiAgent) toolRetrievePrecedent(ctx context.Context, content, tenant
 	return string(out)
 }
 
-func (a *GeminiAgent) toolRemediateContent(ctx context.Context, content, violations string) string {
-	model := a.client.GenerativeModel("gemini-2.0-flash")
+func (a *MistralAgent) toolRemediateContent(ctx context.Context, content, violations string) string {
 	prompt := fmt.Sprintf(
 		"Rewrite this email to remove the following violations while preserving the original intent. Return ONLY the rewritten email body.\n\nVIOLATIONS: %s\n\nORIGINAL:\n%s",
 		violations, content,
 	)
-	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+	resp, err := sendMistralOnce(ctx, a.apiKey, mistralRequest{
+		Model:    mistralModel,
+		Messages: []mistralMessage{{Role: "user", Content: prompt}},
+	})
 	if err != nil {
 		return fmt.Sprintf(`{"error":%q}`, err.Error())
 	}
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+	if len(resp.Choices) == 0 {
 		return `{"error":"no response from remediation model"}`
 	}
-	remediated := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
-	return fmt.Sprintf(`{"remediated_body":%q}`, remediated)
+	return fmt.Sprintf(`{"remediated_body":%q}`, resp.Choices[0].Message.Content)
 }
 
 func parseVerdict(text string) (*Decision, error) {

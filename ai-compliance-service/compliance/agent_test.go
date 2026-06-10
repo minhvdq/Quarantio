@@ -19,12 +19,12 @@ func (m *mockRAGStore) QueryHistoryChunks(_ context.Context, _ string, _ []float
 	return m.historyChunks, nil
 }
 
-func newTestAgent(store RAGStore) *GeminiAgent {
-	e := &GeminiEmbedder{}
+func newTestAgent(store RAGStore) *MistralAgent {
+	e := &MistralEmbedder{}
 	e.embedFn = func(_ context.Context, _ string) ([]float32, error) {
 		return []float32{0.1, 0.2, 0.3}, nil
 	}
-	return &GeminiAgent{embedder: e, store: store}
+	return &MistralAgent{embedder: e, store: store}
 }
 
 func TestToolCheckPolicyViolation_WithChunks(t *testing.T) {

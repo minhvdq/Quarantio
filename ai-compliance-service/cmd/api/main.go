@@ -82,14 +82,14 @@ type Publisher interface {
 type Config struct {
 	DB             *sql.DB
 	Store          Store
-	GeminiKey      string
+	MistralKey      string
 	Rabbit         *amqp.Connection
 	MailServiceURL string
 }
 
 // agentAdapter converts between main package types and compliance package types.
 type agentAdapter struct {
-	inner *compliance.GeminiAgent
+	inner *compliance.MistralAgent
 }
 
 func (a *agentAdapter) RunLoop(ctx context.Context, email EmailMessage, policyChunks, historyChunks []RAGChunk) (*Decision, error) {
@@ -191,9 +191,9 @@ var counts int64
 func main() {
 	log.Println("Starting ai-compliance-service")
 
-	geminiKey := os.Getenv("GEMINI_API_KEY")
-	if geminiKey == "" {
-		log.Fatal("GEMINI_API_KEY is required")
+	mistralKey := os.Getenv("MISTRAL_API_KEY")
+	if mistralKey == "" {
+		log.Fatal("MISTRAL_API_KEY is required")
 	}
 
 	mailURL := os.Getenv("MAIL_SERVICE_URL")
@@ -223,7 +223,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	embedder, err := compliance.NewGeminiEmbedder(ctx, geminiKey)
+	embedder, err := compliance.NewMistralEmbedder(ctx, mistralKey)
 	if err != nil {
 		log.Panicf("embedder init: %v", err)
 	}
@@ -231,7 +231,7 @@ func main() {
 
 	models := data.New(conn)
 
-	agent, err := compliance.NewGeminiAgent(ctx, geminiKey, &ragStoreAdapter{m: models})
+	agent, err := compliance.NewMistralAgent(ctx, mistralKey, &ragStoreAdapter{m: models})
 	if err != nil {
 		log.Panicf("agent init: %v", err)
 	}
@@ -240,7 +240,7 @@ func main() {
 	app := &Config{
 		DB:             conn,
 		Store:          &dataStoreAdapter{m: models},
-		GeminiKey:      geminiKey,
+		MistralKey:      mistralKey,
 		Rabbit:         rabbit,
 		MailServiceURL: mailURL,
 	}
