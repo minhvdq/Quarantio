@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
@@ -108,7 +109,7 @@ func (a *GeminiAgent) RunLoop(ctx context.Context, email EmailMessage, policyChu
 		email.From, email.To, email.Subject, email.Message,
 	)
 
-	resp, err := cs.SendMessage(ctx, genai.Text(emailContent))
+	resp, err := sendWithRetry(ctx, cs, genai.Text(emailContent))
 	if err != nil {
 		return nil, fmt.Errorf("gemini initial send: %w", err)
 	}
@@ -136,7 +137,7 @@ func (a *GeminiAgent) RunLoop(ctx context.Context, email EmailMessage, policyChu
 		}
 
 		if len(toolResponses) > 0 {
-			resp, err = cs.SendMessage(ctx, toolResponses...)
+			resp, err = sendWithRetry(ctx, cs, toolResponses...)
 			if err != nil {
 				return nil, fmt.Errorf("gemini tool response: %w", err)
 			}
@@ -147,6 +148,28 @@ func (a *GeminiAgent) RunLoop(ctx context.Context, email EmailMessage, policyChu
 	}
 
 	return nil, fmt.Errorf("agent loop exceeded max iterations")
+}
+
+// sendWithRetry retries SendMessage on 429 rate-limit errors with exponential backoff.
+func sendWithRetry(ctx context.Context, cs *genai.ChatSession, parts ...genai.Part) (*genai.GenerateContentResponse, error) {
+	backoff := 10 * time.Second
+	for attempt := 0; attempt < 4; attempt++ {
+		resp, err := cs.SendMessage(ctx, parts...)
+		if err == nil {
+			return resp, nil
+		}
+		if !strings.Contains(err.Error(), "429") {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+			backoff *= 2
+		}
+	}
+	resp, err := cs.SendMessage(ctx, parts...)
+	return resp, err
 }
 
 func buildSystemPrompt(policy, history []RAGChunk) string {
