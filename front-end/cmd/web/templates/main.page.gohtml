@@ -46,6 +46,7 @@
       <li class="nav-item"><a class="nav-link" href="#" data-tab="check">Check Email</a></li>
       <li class="nav-item"><a class="nav-link" href="#" data-tab="send">Send Email</a></li>
       <li class="nav-item"><a class="nav-link" href="#" data-tab="audit">Audit Log</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="policies">Policies</a></li>
       <li class="nav-item"><a class="nav-link" href="#" data-tab="quarantine">
         Quarantine <span id="quarantine-badge" class="badge bg-warning text-dark ms-1" style="display:none;"></span>
       </a></li>
@@ -89,10 +90,11 @@
         <div id="check-result" class="d-none">
           <div id="check-result-card" class="card shadow-sm border-0">
             <div class="card-body">
-              <div class="d-flex align-items-center gap-2 mb-3">
+              <div class="d-flex align-items-center gap-2 mb-2">
                 <span class="fs-6 fw-semibold">Verdict</span>
                 <span id="check-verdict-badge" class="badge fs-6"></span>
               </div>
+              <p id="check-routing-context" class="small mb-3"></p>
               <div id="check-violations-wrap" class="mb-2 d-none">
                 <p class="mb-1 fw-semibold small">Violations</p>
                 <div id="check-violations"></div>
@@ -180,6 +182,34 @@
     </div>
   </div>
 
+  <!-- Policies Tab -->
+  <div id="tab-policies" class="tab-pane container py-4" style="display:none;">
+    <div class="row justify-content-center">
+      <div class="col-md-7">
+        <h5 class="mb-1">Compliance Policies</h5>
+        <p class="text-muted small mb-4">Upload plain-text or PDF policy documents. The agent uses these to evaluate emails against your organization's rules.</p>
+        <div id="policy-alert" class="d-none mb-3"></div>
+        <div class="card shadow-sm mb-4">
+          <div class="card-body">
+            <label class="form-label fw-semibold">Upload Policy Document</label>
+            <div id="policy-dropzone" class="border border-2 rounded p-4 text-center text-muted mb-3" style="border-style:dashed!important;cursor:pointer;">
+              <div id="policy-dropzone-label">Drop a file here or <span class="text-primary">click to browse</span></div>
+              <div id="policy-file-chosen" class="text-dark fw-semibold mt-1 d-none"></div>
+              <input type="file" id="policyFile" accept=".txt,.pdf,.md" class="d-none">
+            </div>
+            <button class="btn btn-primary w-100" id="uploadPolicyBtn">
+              <span id="uploadPolicySpinner" class="spinner-border spinner-border-sm me-2 d-none"></span>
+              Upload Policy
+            </button>
+          </div>
+        </div>
+        <div class="text-muted small">
+          <strong>Tips:</strong> Plain text works best. Include rules like "No SSNs in external emails" or paste your existing acceptable-use policy. Each upload is split into chunks and embedded — uploading a new version adds to existing chunks.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Quarantine Tab -->
   <div id="tab-quarantine" class="tab-pane container-fluid py-4" style="display:none;">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -253,7 +283,10 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="modalSubject"></h5>
+        <div>
+          <h5 class="modal-title" id="modalSubject"></h5>
+          <div id="modalPriorityBadge" class="mt-1"></div>
+        </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -351,6 +384,7 @@ function showTab(name) {
   if (name === "audit")      loadAudit();
   if (name === "quarantine") loadQuarantine();
   if (name === "settings")   loadSettings();
+  if (name === "policies")   initPoliciesTab();
 }
 
 // ── Check Email ───────────────────────────────────────────────────────────────
@@ -389,6 +423,12 @@ document.getElementById("checkBtn").addEventListener("click", async () => {
 function renderCheckResult(d) {
   const verdictColors = { CLEAN:"success", LOW:"info", MEDIUM:"warning", HIGH:"danger" };
   const cardBorders   = { CLEAN:"border-success", LOW:"border-info", MEDIUM:"border-warning", HIGH:"border-danger" };
+  const routingText   = {
+    CLEAN:  "✓ Compliant — would be delivered.",
+    LOW:    "⚠ Minor violation — would be auto-remediated and delivered (or quarantined if auto-deliver is off).",
+    MEDIUM: "⚑ Policy violation — would be sent to quarantine for human review.",
+    HIGH:   "✕ Serious violation — would be quarantined with HIGH priority for immediate review.",
+  };
   const verdict = d.verdict || "UNKNOWN";
 
   const card = document.getElementById("check-result-card");
@@ -397,6 +437,10 @@ function renderCheckResult(d) {
   const badge = document.getElementById("check-verdict-badge");
   badge.className = "badge fs-6 bg-" + (verdictColors[verdict] || "secondary");
   badge.textContent = verdict;
+
+  const ctx = document.getElementById("check-routing-context");
+  ctx.textContent = routingText[verdict] || "";
+  ctx.className = "small mb-3 text-" + (verdictColors[verdict] || "secondary");
 
   const violations = d.violations || [];
   const violWrap = document.getElementById("check-violations-wrap");
@@ -518,6 +562,8 @@ document.getElementById("auditFilter").addEventListener("change", loadAudit);
 document.getElementById("auditRefreshBtn").addEventListener("click", loadAudit);
 
 // ── Quarantine ────────────────────────────────────────────────────────────────
+let quarantineCache = [];
+
 async function loadQuarantine() {
   const loading = document.getElementById("quarantine-loading");
   const wrap    = document.getElementById("quarantine-table-wrap");
@@ -528,15 +574,16 @@ async function loadQuarantine() {
   loading.style.display = "block";
   wrap.classList.add("d-none");
 
-  const res  = await fetch(`${TENANT_URL}/v1/quarantine?status=pending`, {
+  const res  = await fetch(`${TENANT_URL}/v1/quarantine?status=`, {
     headers: { Authorization: "Bearer " + apiKey },
   });
   const data = await res.json();
+  quarantineCache = data.data || [];
 
   loading.style.display = "none";
   wrap.classList.remove("d-none");
 
-  const entries = data.data || [];
+  const entries = quarantineCache;
   const pending = entries.filter(e => e.status === "pending").length;
   badge.textContent     = pending;
   badge.style.display   = pending > 0 ? "inline" : "none";
@@ -581,33 +628,26 @@ async function doReview(id, action) {
   loadQuarantine();
 }
 
-async function openModal(id) {
-  const res  = await fetch(`${TENANT_URL}/v1/quarantine?status=`, {
-    headers: { Authorization: "Bearer " + apiKey },
-  });
-  const data = await res.json();
-  const e    = (data.data || []).find(x => x.id === id);
+function openModal(id) {
+  const e = quarantineCache.find(x => x.id === id);
   if (!e) return;
 
-  document.getElementById("modalSubject").textContent   = e.subject || "(no subject)";
-  document.getElementById("modalFrom").textContent      = e.email_from;
-  document.getElementById("modalTo").textContent        = e.email_to;
-  document.getElementById("modalBody").textContent      = e.body;
-  document.getElementById("modalViolations").innerHTML  =
+  document.getElementById("modalSubject").textContent  = e.subject || "(no subject)";
+  document.getElementById("modalFrom").textContent     = e.email_from;
+  document.getElementById("modalTo").textContent       = e.email_to;
+  document.getElementById("modalBody").textContent     = e.body;
+  document.getElementById("modalPriorityBadge").innerHTML = priorityBadge(e.priority);
+  document.getElementById("modalViolations").innerHTML =
     (e.violations||[]).length
       ? "<strong>Violations:</strong> " + e.violations.map(v => `<span class="badge bg-danger me-1">${v}</span>`).join("")
       : "";
   document.getElementById("modalReasoning").textContent = e.reasoning ? "Reasoning: " + e.reasoning : "";
 
   const actions = document.getElementById("modalActions");
-  if (e.status === "pending") {
-    actions.innerHTML = `
-      <button class="btn btn-success" onclick="doReview('${e.id}','release')">Release & Deliver</button>
-      <button class="btn btn-danger ms-2" onclick="doReview('${e.id}','reject')">Reject</button>
-    `;
-  } else {
-    actions.innerHTML = `<span class="text-muted">Already ${e.status}</span>`;
-  }
+  actions.innerHTML = e.status === "pending"
+    ? `<button class="btn btn-success" onclick="doReview('${e.id}','release')">Release &amp; Deliver</button>
+       <button class="btn btn-danger ms-2" onclick="doReview('${e.id}','reject')">Reject</button>`
+    : `<span class="text-muted">Already ${e.status}</span>`;
 
   currentModal = new bootstrap.Modal(document.getElementById("emailModal"));
   currentModal.show();
@@ -634,6 +674,73 @@ function fmtTime(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
 }
+
+// ── Policies ──────────────────────────────────────────────────────────────────
+function initPoliciesTab() {
+  const dropzone  = document.getElementById("policy-dropzone");
+  const fileInput = document.getElementById("policyFile");
+  const label     = document.getElementById("policy-dropzone-label");
+  const chosen    = document.getElementById("policy-file-chosen");
+
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("border-primary"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("border-primary"));
+  dropzone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropzone.classList.remove("border-primary");
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+  function setFile(f) {
+    chosen.textContent = f.name;
+    chosen.classList.remove("d-none");
+    label.classList.add("d-none");
+    fileInput._selectedFile = f;
+  }
+}
+
+document.getElementById("uploadPolicyBtn").addEventListener("click", async () => {
+  const fileInput = document.getElementById("policyFile");
+  const file = fileInput._selectedFile || fileInput.files[0];
+  const alert   = document.getElementById("policy-alert");
+  const spinner = document.getElementById("uploadPolicySpinner");
+
+  if (!file) {
+    alert.className = "alert alert-warning";
+    alert.textContent = "Please select a policy file first.";
+    alert.classList.remove("d-none");
+    return;
+  }
+
+  spinner.classList.remove("d-none");
+  alert.classList.add("d-none");
+
+  const form = new FormData();
+  form.append("policy", file);
+
+  const res = await fetch(`${TENANT_URL}/v1/policies`, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + apiKey },
+    body: form,
+  });
+  spinner.classList.add("d-none");
+
+  const data = await res.json();
+  if (res.ok) {
+    alert.className = "alert alert-success";
+    alert.textContent = data.message || "Policy uploaded successfully.";
+    // Reset file selection
+    fileInput.value = "";
+    fileInput._selectedFile = null;
+    document.getElementById("policy-file-chosen").classList.add("d-none");
+    document.getElementById("policy-dropzone-label").classList.remove("d-none");
+  } else {
+    alert.className = "alert alert-danger";
+    alert.textContent = data.message || "Upload failed.";
+  }
+  alert.classList.remove("d-none");
+});
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function loadSettings() {
