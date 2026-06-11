@@ -32,6 +32,7 @@ func (m *mockStore) InsertQuarantine(_ context.Context, tenantID, emailFrom, ema
 func (m *mockStore) GetTenantSettings(_ context.Context, tenantID string) (*TenantSettings, error) {
 	return &TenantSettings{AutoDeliverLow: true, RetentionDays: 90}, nil
 }
+func (m *mockStore) RunRetention(_ context.Context) (int64, error) { return 0, nil }
 
 type mockAgent struct{ decision *Decision }
 

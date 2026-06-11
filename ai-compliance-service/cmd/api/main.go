@@ -74,6 +74,7 @@ type Store interface {
 	QueryHistoryChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error)
 	InsertQuarantine(ctx context.Context, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority string) error
 	GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettings, error)
+	RunRetention(ctx context.Context) (int64, error)
 }
 
 type Embedder interface {
@@ -159,6 +160,10 @@ func (a *dataStoreAdapter) QueryPolicyChunks(ctx context.Context, tenantID strin
 
 func (a *dataStoreAdapter) InsertQuarantine(ctx context.Context, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority string) error {
 	return a.m.InsertQuarantine(ctx, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority)
+}
+
+func (a *dataStoreAdapter) RunRetention(ctx context.Context) (int64, error) {
+	return a.m.RunRetention(ctx)
 }
 
 func (a *dataStoreAdapter) GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettings, error) {
@@ -277,6 +282,8 @@ func main() {
 			log.Printf("internal HTTP server error: %v", err)
 		}
 	}()
+
+	go app.startRetentionJob(ctx)
 
 	deliveries, err := consumer.Consume()
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 
@@ -182,6 +183,35 @@ func (m *Models) GetTenantSettings(ctx context.Context, tenantID string) (*Tenan
 		return s, nil
 	}
 	return s, err
+}
+
+// RunRetention deletes audit_log and quarantine rows that exceed each tenant's
+// configured retention_days (default 90 days for tenants with no setting).
+// Returns the total number of rows deleted across both tables.
+func (m *Models) RunRetention(ctx context.Context) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	var total int64
+	for _, table := range []string{"audit_log", "quarantine"} {
+		q := `
+			DELETE FROM ` + table + `
+			WHERE tenant_id IS NOT NULL
+			  AND created_at < NOW() - (
+			        COALESCE(
+			            (SELECT retention_days FROM tenant_settings WHERE tenant_id = ` + table + `.tenant_id),
+			            90
+			        ) * INTERVAL '1 day'
+			      )
+		`
+		res, err := m.db.ExecContext(ctx, q)
+		if err != nil {
+			return total, fmt.Errorf("retention delete from %s: %w", table, err)
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	return total, nil
 }
 
 // InsertQuarantine stores a quarantined email for human review.
