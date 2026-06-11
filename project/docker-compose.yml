@@ -94,6 +94,7 @@ services:
       MISTRAL_API_KEY: "${MISTRAL_API_KEY}"
       MAIL_SERVICE_URL: "http://mail-service/send"
       COMPLIANCE_SVC_URL: "http://ai-compliance-service:8083"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
 
   ai-compliance-service:
     build:
@@ -109,6 +110,7 @@ services:
       DSN: "host=postgres port=5432 user=postgres password=password dbname=users sslmode=disable timezone=UTC connect_timeout=5"
       MISTRAL_API_KEY: "${MISTRAL_API_KEY}"
       MAIL_SERVICE_URL: "http://mail-service/send"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
 
   postgres:
     image: 'pgvector/pgvector:pg14'

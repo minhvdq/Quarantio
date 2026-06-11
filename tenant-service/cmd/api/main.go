@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"log"
@@ -68,9 +69,16 @@ func main() {
 		complianceURL = "http://ai-compliance-service:8083"
 	}
 
+	encKey := os.Getenv("ENCRYPTION_KEY")
+	var encKeyBytes []byte
+	if encKey != "" {
+		h := sha256.Sum256([]byte(encKey))
+		encKeyBytes = h[:]
+	}
+
 	app := Config{
 		DB:               conn,
-		Store:            data.New(conn),
+		Store:            data.NewWithEncryption(conn, encKeyBytes),
 		GeminiKey:        mistralKey,
 		MailServiceURL:   mailURL,
 		ComplianceSvcURL: complianceURL,

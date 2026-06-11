@@ -3,8 +3,13 @@ package data
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"time"
 
 	pgvector "github.com/pgvector/pgvector-go"
@@ -13,11 +18,32 @@ import (
 const dbTimeout = 5 * time.Second
 
 type Models struct {
-	db *sql.DB
+	db  *sql.DB
+	key []byte // nil = no encryption
 }
 
-func New(db *sql.DB) *Models {
-	return &Models{db: db}
+func New(db *sql.DB) *Models { return &Models{db: db} }
+
+func NewWithEncryption(db *sql.DB, key []byte) *Models { return &Models{db: db, key: key} }
+
+func (m *Models) encryptBody(plaintext string) (string, error) {
+	if len(m.key) == 0 {
+		return plaintext, nil
+	}
+	block, err := aes.NewCipher(m.key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	sealed := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
 // ChunkRow holds one row returned by a pgvector similarity query.
@@ -159,10 +185,15 @@ func (m *Models) GetTenantSettings(ctx context.Context, tenantID string) (*Tenan
 }
 
 // InsertQuarantine stores a quarantined email for human review.
-// priority must be "medium" or "high".
+// priority must be "medium" or "high". body is AES-GCM encrypted if a key is configured.
 func (m *Models) InsertQuarantine(ctx context.Context, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority string) error {
 	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
 	defer cancel()
+
+	encBody, err := m.encryptBody(body)
+	if err != nil {
+		return err
+	}
 
 	var tid any
 	if tenantID != "" {
@@ -173,7 +204,7 @@ func (m *Models) InsertQuarantine(ctx context.Context, tenantID, emailFrom, emai
 		INSERT INTO quarantine (tenant_id, email_from, email_to, subject, body, violations, reasoning, priority)
 		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
 	`
-	_, err := m.db.ExecContext(ctx, query, tid, emailFrom, emailTo, subject, body, violations, reasoning, priority)
+	_, err = m.db.ExecContext(ctx, query, tid, emailFrom, emailTo, subject, encBody, violations, reasoning, priority)
 	return err
 }
 

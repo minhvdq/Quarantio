@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -250,7 +251,7 @@ func main() {
 	}
 	defer embedder.Close()
 
-	models := data.New(conn)
+	models := data.NewWithEncryption(conn, deriveKey(os.Getenv("ENCRYPTION_KEY")))
 
 	agent, err := compliance.NewMistralAgent(ctx, mistralKey, &ragStoreAdapter{m: models})
 	if err != nil {
@@ -313,6 +314,14 @@ func main() {
 		log.Printf("[email] done in %s", time.Since(start).Round(time.Millisecond))
 		_ = d.Ack(false)
 	}
+}
+
+func deriveKey(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	h := sha256.Sum256([]byte(s))
+	return h[:]
 }
 
 func openDB(dsn string) (*sql.DB, error) {

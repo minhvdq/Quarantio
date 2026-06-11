@@ -2,9 +2,12 @@ package data
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -22,12 +25,41 @@ type Tenant struct {
 }
 
 type Models struct {
-	db *sql.DB
+	db  *sql.DB
+	key []byte // nil = no encryption
 }
 
-func New(db *sql.DB) *Models {
-	return &Models{db: db}
+func New(db *sql.DB) *Models { return &Models{db: db} }
+
+func NewWithEncryption(db *sql.DB, key []byte) *Models { return &Models{db: db, key: key} }
+
+func (m *Models) decryptBody(stored string) string {
+	if len(m.key) == 0 {
+		return stored
+	}
+	raw, err := base64.StdEncoding.DecodeString(stored)
+	if err != nil {
+		return stored // legacy unencrypted row
+	}
+	block, err := aes.NewCipher(m.key)
+	if err != nil {
+		return stored
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return stored
+	}
+	if len(raw) < gcm.NonceSize() {
+		return stored
+	}
+	nonce, ct := raw[:gcm.NonceSize()], raw[gcm.NonceSize():]
+	plain, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return stored // legacy unencrypted row
+	}
+	return string(plain)
 }
+
 
 // CreateTenant inserts a new tenant and returns the created record.
 func (m *Models) CreateTenant(ctx context.Context, name string) (*Tenant, error) {
@@ -179,6 +211,7 @@ func (m *Models) QueryQuarantine(ctx context.Context, tenantID, status string) (
 			pq.Array(&e.Violations), &e.Reasoning, &e.Status, &e.Priority, &e.CreatedAt); err != nil {
 			return nil, err
 		}
+		e.Body = m.decryptBody(e.Body)
 		entries = append(entries, e)
 	}
 	if entries == nil {
@@ -206,6 +239,7 @@ func (m *Models) GetQuarantineByID(ctx context.Context, id, tenantID string) (*Q
 	if err != nil {
 		return nil, err
 	}
+	e.Body = m.decryptBody(e.Body)
 	return &e, nil
 }
 
