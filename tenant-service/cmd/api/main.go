@@ -23,6 +23,12 @@ type Store interface {
 	GenerateAPIKey(ctx context.Context, tenantID, label string) (string, error)
 	ValidateAPIKey(ctx context.Context, rawKey string) (string, error)
 	InsertPolicyEmbedding(ctx context.Context, tenantID, filename string, chunkIndex int, content string, embedding []float32) error
+	QueryAuditLog(ctx context.Context, tenantID, verdict string, limit int) ([]data.AuditEntry, error)
+	QueryQuarantine(ctx context.Context, tenantID, status string) ([]data.QuarantineEntry, error)
+	GetQuarantineByID(ctx context.Context, id, tenantID string) (*data.QuarantineEntry, error)
+	UpdateQuarantineStatus(ctx context.Context, id, tenantID, status string) error
+	GetSettings(ctx context.Context, tenantID string) (*data.TenantSettings, error)
+	UpsertSettings(ctx context.Context, tenantID string, s data.TenantSettings) error
 }
 
 type Embedder interface {
@@ -30,9 +36,11 @@ type Embedder interface {
 }
 
 type Config struct {
-	DB        *sql.DB
-	Store     Store
-	GeminiKey string
+	DB                *sql.DB
+	Store             Store
+	GeminiKey         string
+	MailServiceURL    string
+	ComplianceSvcURL  string
 }
 
 func main() {
@@ -48,10 +56,22 @@ func main() {
 		log.Fatal("MISTRAL_API_KEY is required")
 	}
 
+	mailURL := os.Getenv("MAIL_SERVICE_URL")
+	if mailURL == "" {
+		mailURL = "http://mail-service/send"
+	}
+
+	complianceURL := os.Getenv("COMPLIANCE_SVC_URL")
+	if complianceURL == "" {
+		complianceURL = "http://ai-compliance-service:8083"
+	}
+
 	app := Config{
-		DB:        conn,
-		Store:     data.New(conn),
-		GeminiKey: mistralKey,
+		DB:               conn,
+		Store:            data.New(conn),
+		GeminiKey:        mistralKey,
+		MailServiceURL:   mailURL,
+		ComplianceSvcURL: complianceURL,
 	}
 
 	srv := &http.Server{

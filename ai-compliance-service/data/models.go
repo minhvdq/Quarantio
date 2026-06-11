@@ -34,13 +34,18 @@ func (m *Models) InsertAuditLog(ctx context.Context, tenantID, emailFrom, emailS
 	vb, _ := json.Marshal(violations)
 	violationsJSON := string(vb)
 
+	var tid any
+	if tenantID != "" {
+		tid = tenantID
+	}
+
 	query := `
 		INSERT INTO audit_log
 			(tenant_id, email_from, email_to, email_subject, verdict, violations, gemini_reasoning, action_taken)
 		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
 	`
 	_, err := m.db.ExecContext(ctx, query,
-		tenantID,
+		tid,
 		emailFrom,
 		emailTo,
 		emailSubject,
@@ -53,16 +58,21 @@ func (m *Models) InsertAuditLog(ctx context.Context, tenantID, emailFrom, emailS
 }
 
 // InsertEmailHistory stores an email embedding for future precedent RAG queries.
-func (m *Models) InsertEmailHistory(ctx context.Context, tenantID, content string, embedding []float32, verdict, violations string) error {
+func (m *Models) InsertEmailHistory(ctx context.Context, tenantID, content string, embedding []float32, verdict string, violations []string) error {
 	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
 	defer cancel()
+
+	var tid any
+	if tenantID != "" {
+		tid = tenantID
+	}
 
 	query := `
 		INSERT INTO email_history_embeddings (tenant_id, content, embedding, verdict, violations)
 		VALUES ($1, $2, $3, $4, $5)
 	`
 	_, err := m.db.ExecContext(ctx, query,
-		tenantID,
+		tid,
 		content,
 		pgvector.NewVector(embedding),
 		verdict,
@@ -128,3 +138,42 @@ func (m *Models) QueryHistoryChunks(ctx context.Context, tenantID string, embedd
 	}
 	return chunks, rows.Err()
 }
+
+type TenantSettings struct {
+	AutoDeliverLow bool
+	RetentionDays  int
+}
+
+// GetTenantSettings returns the compliance settings for a tenant, or safe defaults if unset.
+func (m *Models) GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettings, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	s := &TenantSettings{AutoDeliverLow: true, RetentionDays: 90}
+	query := `SELECT auto_deliver_low, retention_days FROM tenant_settings WHERE tenant_id = $1`
+	err := m.db.QueryRowContext(ctx, query, tenantID).Scan(&s.AutoDeliverLow, &s.RetentionDays)
+	if err == sql.ErrNoRows {
+		return s, nil
+	}
+	return s, err
+}
+
+// InsertQuarantine stores a quarantined email for human review.
+// priority must be "medium" or "high".
+func (m *Models) InsertQuarantine(ctx context.Context, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority string) error {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	var tid any
+	if tenantID != "" {
+		tid = tenantID
+	}
+
+	query := `
+		INSERT INTO quarantine (tenant_id, email_from, email_to, subject, body, violations, reasoning, priority)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+	`
+	_, err := m.db.ExecContext(ctx, query, tid, emailFrom, emailTo, subject, body, violations, reasoning, priority)
+	return err
+}
+

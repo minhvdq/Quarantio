@@ -37,6 +37,28 @@ func (m *mockStore) InsertPolicyEmbedding(_ context.Context, tenantID, filename 
 	return m.err
 }
 
+func (m *mockStore) QueryAuditLog(_ context.Context, tenantID, verdict string, limit int) ([]data.AuditEntry, error) {
+	return []data.AuditEntry{}, m.err
+}
+
+func (m *mockStore) QueryQuarantine(_ context.Context, tenantID, status string) ([]data.QuarantineEntry, error) {
+	return []data.QuarantineEntry{}, m.err
+}
+
+func (m *mockStore) GetQuarantineByID(_ context.Context, id, tenantID string) (*data.QuarantineEntry, error) {
+	return nil, m.err
+}
+
+func (m *mockStore) UpdateQuarantineStatus(_ context.Context, id, tenantID, status string) error {
+	return m.err
+}
+func (m *mockStore) GetSettings(_ context.Context, tenantID string) (*data.TenantSettings, error) {
+	return &data.TenantSettings{AutoDeliverLow: true, RetentionDays: 90}, m.err
+}
+func (m *mockStore) UpsertSettings(_ context.Context, tenantID string, s data.TenantSettings) error {
+	return m.err
+}
+
 // --- mock Embedder ---
 
 type mockEmbedder struct {

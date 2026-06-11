@@ -26,6 +26,12 @@ func (m *mockStore) QueryPolicyChunks(_ context.Context, _ string, _ []float32, 
 func (m *mockStore) QueryHistoryChunks(_ context.Context, _ string, _ []float32, _ int) ([]RAGChunk, error) {
 	return nil, nil
 }
+func (m *mockStore) InsertQuarantine(_ context.Context, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority string) error {
+	return nil
+}
+func (m *mockStore) GetTenantSettings(_ context.Context, tenantID string) (*TenantSettings, error) {
+	return &TenantSettings{AutoDeliverLow: true, RetentionDays: 90}, nil
+}
 
 type mockAgent struct{ decision *Decision }
 

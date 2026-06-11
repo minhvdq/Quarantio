@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -151,6 +152,8 @@ func (a *MistralAgent) RunLoop(ctx context.Context, email EmailMessage, policyCh
 	}
 
 	for i := 0; i < 10; i++ {
+		log.Printf("[agent] turn %d — sending to Mistral...", i+1)
+		t := time.Now()
 		resp, err := sendMistralWithRetry(ctx, a.apiKey, mistralRequest{
 			Model:    mistralModel,
 			Messages: messages,
@@ -159,12 +162,18 @@ func (a *MistralAgent) RunLoop(ctx context.Context, email EmailMessage, policyCh
 		if err != nil {
 			return nil, fmt.Errorf("mistral chat: %w", err)
 		}
+		log.Printf("[agent] turn %d — response in %s", i+1, time.Since(t).Round(time.Millisecond))
 		if len(resp.Choices) == 0 {
 			return nil, fmt.Errorf("mistral returned no choices")
 		}
 		choice := resp.Choices[0]
 
 		if len(choice.Message.ToolCalls) > 0 {
+			var toolNames []string
+			for _, tc := range choice.Message.ToolCalls {
+				toolNames = append(toolNames, tc.Function.Name)
+			}
+			log.Printf("[agent] turn %d — tool calls: %v", i+1, toolNames)
 			messages = append(messages, mistralMessage{
 				Role:      "assistant",
 				ToolCalls: choice.Message.ToolCalls,
@@ -183,6 +192,7 @@ func (a *MistralAgent) RunLoop(ctx context.Context, email EmailMessage, policyCh
 			continue
 		}
 
+		log.Printf("[agent] turn %d — final verdict received", i+1)
 		return parseVerdict(choice.Message.Content)
 	}
 
@@ -264,11 +274,31 @@ func buildSystemPrompt(policy, history []RAGChunk) string {
 	sb.WriteString(`Use available tools to investigate. When finished, respond with ONLY this JSON (no markdown):
 {"verdict":"CLEAN|LOW|MEDIUM|HIGH","violations":["..."],"reasoning":"...","remediated_body":"..."}
 
-Verdicts:
-- CLEAN: no violations found
-- LOW: minor issue, auto-remediable (populate remediated_body with cleaned version)
-- MEDIUM: ambiguous risk requiring human review
-- HIGH: clear threat (phishing, exfiltration, severe PII leak)`)
+VERDICT RULES — evaluate in order, stop at first match:
+
+STEP 1 — Check for HIGH: assign HIGH if any are true:
+  - Phishing, credential harvesting, or social engineering attack
+  - Mass exfiltration (large bulk recipient list with sensitive content)
+  - SSN, credit card numbers, or severe PHI leak
+  - Explicit intent to cause harm or defraud
+
+STEP 2 — Check for MEDIUM: assign MEDIUM if any are true:
+  - Circumvention language is present. This includes ANY of: "delete this", "you didn't hear this from me", "don't tell anyone", "hasn't been approved", "keep this between us", "off the record", "don't forward this", or any phrase showing the sender knows they are bypassing policy. THIS ALONE IS SUFFICIENT FOR MEDIUM — it does not matter if the content could otherwise be redacted.
+  - Confidential, financial, M&A, legal, or medical content sent to a personal address (gmail, yahoo, hotmail, etc.) or external domain without documented approval
+  - Policy violation that requires more than redacting a single isolated data element to fix
+
+STEP 3 — Check for LOW: assign LOW ONLY if ALL four are true:
+  (a) No circumvention language anywhere in the email
+  (b) No confidential/financial/M&A content sent externally without approval
+  (c) Violation is a single accidental data element (one phone number, one address, one ID number)
+  (d) Removing that one element fully resolves the entire violation
+
+STEP 4 — CLEAN: no violations found.
+
+CRITICAL RULES:
+- If circumvention language exists → ALWAYS MEDIUM (never LOW, never CLEAN)
+- Do NOT call remediate_content for MEDIUM or HIGH. Only call it after confirming LOW by all four criteria above.
+- When unsure between LOW and MEDIUM, choose MEDIUM.`)
 
 	return sb.String()
 }

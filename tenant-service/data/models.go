@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"time"
 
+	"github.com/lib/pq"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
@@ -76,6 +77,58 @@ func (m *Models) ValidateAPIKey(ctx context.Context, rawKey string) (string, err
 	return tenantID, err
 }
 
+type AuditEntry struct {
+	ID           string    `json:"id"`
+	EmailFrom    string    `json:"email_from"`
+	EmailTo      []string  `json:"email_to"`
+	EmailSubject string    `json:"email_subject"`
+	Verdict      string    `json:"verdict"`
+	Violations   []string  `json:"violations"`
+	ActionTaken  string    `json:"action_taken"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// QueryAuditLog returns audit entries for a tenant, newest first.
+// Pass verdict="" to return all verdicts. limit<=0 defaults to 50.
+func (m *Models) QueryAuditLog(ctx context.Context, tenantID, verdict string, limit int) ([]AuditEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `
+		SELECT id, email_from, email_to, email_subject, verdict,
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       action_taken, created_at
+		FROM audit_log
+		WHERE tenant_id = $1
+		  AND ($2 = '' OR verdict = $2)
+		ORDER BY created_at DESC
+		LIMIT $3
+	`
+	rows, err := m.db.QueryContext(ctx, query, tenantID, verdict, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(&e.ID, &e.EmailFrom, pq.Array(&e.EmailTo), &e.EmailSubject,
+			&e.Verdict, pq.Array(&e.Violations), &e.ActionTaken, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	if entries == nil {
+		entries = []AuditEntry{}
+	}
+	return entries, rows.Err()
+}
+
 // InsertPolicyEmbedding stores one chunk with its embedding vector.
 func (m *Models) InsertPolicyEmbedding(ctx context.Context, tenantID, filename string, chunkIndex int, content string, embedding []float32) error {
 	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
@@ -84,4 +137,126 @@ func (m *Models) InsertPolicyEmbedding(ctx context.Context, tenantID, filename s
 	query := `INSERT INTO policy_embeddings (tenant_id, source_filename, chunk_index, content, embedding) VALUES ($1, $2, $3, $4, $5)`
 	_, err := m.db.ExecContext(ctx, query, tenantID, filename, chunkIndex, content, pgvector.NewVector(embedding))
 	return err
+}
+
+type QuarantineEntry struct {
+	ID         string    `json:"id"`
+	EmailFrom  string    `json:"email_from"`
+	EmailTo    string    `json:"email_to"`
+	Subject    string    `json:"subject"`
+	Body       string    `json:"body"`
+	Violations []string  `json:"violations"`
+	Reasoning  string    `json:"reasoning"`
+	Status     string    `json:"status"`
+	Priority   string    `json:"priority"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+func (m *Models) QueryQuarantine(ctx context.Context, tenantID, status string) ([]QuarantineEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	query := `
+		SELECT id, email_from, email_to, subject, body,
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       COALESCE(reasoning, ''), status, COALESCE(priority, 'medium'), created_at
+		FROM quarantine
+		WHERE tenant_id = $1 AND ($2 = '' OR status = $2)
+		ORDER BY created_at DESC
+		LIMIT 100
+	`
+	rows, err := m.db.QueryContext(ctx, query, tenantID, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []QuarantineEntry
+	for rows.Next() {
+		var e QuarantineEntry
+		if err := rows.Scan(&e.ID, &e.EmailFrom, &e.EmailTo, &e.Subject, &e.Body,
+			pq.Array(&e.Violations), &e.Reasoning, &e.Status, &e.Priority, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	if entries == nil {
+		entries = []QuarantineEntry{}
+	}
+	return entries, rows.Err()
+}
+
+func (m *Models) GetQuarantineByID(ctx context.Context, id, tenantID string) (*QuarantineEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	query := `
+		SELECT id, email_from, email_to, subject, body,
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       COALESCE(reasoning, ''), status, COALESCE(priority, 'medium'), created_at
+		FROM quarantine
+		WHERE id = $1 AND tenant_id = $2
+	`
+	var e QuarantineEntry
+	err := m.db.QueryRowContext(ctx, query, id, tenantID).Scan(
+		&e.ID, &e.EmailFrom, &e.EmailTo, &e.Subject, &e.Body,
+		pq.Array(&e.Violations), &e.Reasoning, &e.Status, &e.Priority, &e.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+type TenantSettings struct {
+	AutoDeliverLow bool `json:"auto_deliver_low"`
+	RetentionDays  int  `json:"retention_days"`
+}
+
+func (m *Models) GetSettings(ctx context.Context, tenantID string) (*TenantSettings, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	s := &TenantSettings{AutoDeliverLow: true, RetentionDays: 90}
+	query := `SELECT auto_deliver_low, retention_days FROM tenant_settings WHERE tenant_id = $1`
+	err := m.db.QueryRowContext(ctx, query, tenantID).Scan(&s.AutoDeliverLow, &s.RetentionDays)
+	if err == sql.ErrNoRows {
+		return s, nil
+	}
+	return s, err
+}
+
+func (m *Models) UpsertSettings(ctx context.Context, tenantID string, s TenantSettings) error {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	query := `
+		INSERT INTO tenant_settings (tenant_id, auto_deliver_low, retention_days, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (tenant_id) DO UPDATE
+		SET auto_deliver_low = EXCLUDED.auto_deliver_low,
+		    retention_days   = EXCLUDED.retention_days,
+		    updated_at       = NOW()
+	`
+	_, err := m.db.ExecContext(ctx, query, tenantID, s.AutoDeliverLow, s.RetentionDays)
+	return err
+}
+
+func (m *Models) UpdateQuarantineStatus(ctx context.Context, id, tenantID, status string) error {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	query := `
+		UPDATE quarantine SET status = $1, reviewed_at = NOW()
+		WHERE id = $2 AND tenant_id = $3 AND status = 'pending'
+	`
+	res, err := m.db.ExecContext(ctx, query, status, id, tenantID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

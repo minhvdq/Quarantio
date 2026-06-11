@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"os"
 	"time"
 
@@ -49,6 +50,11 @@ type Decision struct {
 	RemediatedBody string
 }
 
+type TenantSettings struct {
+	AutoDeliverLow bool
+	RetentionDays  int
+}
+
 type AuditEntry struct {
 	TenantID   string
 	EmailFrom  string
@@ -65,6 +71,8 @@ type Store interface {
 	InsertEmailHistory(ctx context.Context, tenantID, content string, embedding []float32, verdict Verdict, violations []string) error
 	QueryPolicyChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error)
 	QueryHistoryChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error)
+	InsertQuarantine(ctx context.Context, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority string) error
+	GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettings, error)
 }
 
 type Embedder interface {
@@ -82,9 +90,11 @@ type Publisher interface {
 type Config struct {
 	DB             *sql.DB
 	Store          Store
-	MistralKey      string
+	MistralKey     string
 	Rabbit         *amqp.Connection
 	MailServiceURL string
+	Agent          AgentRunner
+	Embedder       Embedder
 }
 
 // agentAdapter converts between main package types and compliance package types.
@@ -131,8 +141,7 @@ func (a *dataStoreAdapter) InsertAuditLog(ctx context.Context, entry AuditEntry)
 }
 
 func (a *dataStoreAdapter) InsertEmailHistory(ctx context.Context, tenantID, content string, embedding []float32, verdict Verdict, violations []string) error {
-	vb, _ := json.Marshal(violations)
-	return a.m.InsertEmailHistory(ctx, tenantID, content, embedding, string(verdict), string(vb))
+	return a.m.InsertEmailHistory(ctx, tenantID, content, embedding, string(verdict), violations)
 }
 
 func (a *dataStoreAdapter) QueryPolicyChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error) {
@@ -145,6 +154,18 @@ func (a *dataStoreAdapter) QueryPolicyChunks(ctx context.Context, tenantID strin
 		chunks[i] = RAGChunk{Content: r.Content, Source: r.Source}
 	}
 	return chunks, nil
+}
+
+func (a *dataStoreAdapter) InsertQuarantine(ctx context.Context, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority string) error {
+	return a.m.InsertQuarantine(ctx, tenantID, emailFrom, emailTo, subject, body, violations, reasoning, priority)
+}
+
+func (a *dataStoreAdapter) GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettings, error) {
+	s, err := a.m.GetTenantSettings(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return &TenantSettings{AutoDeliverLow: s.AutoDeliverLow, RetentionDays: s.RetentionDays}, nil
 }
 
 func (a *dataStoreAdapter) QueryHistoryChunks(ctx context.Context, tenantID string, embedding []float32, limit int) ([]RAGChunk, error) {
@@ -240,15 +261,39 @@ func main() {
 	app := &Config{
 		DB:             conn,
 		Store:          &dataStoreAdapter{m: models},
-		MistralKey:      mistralKey,
+		MistralKey:     mistralKey,
 		Rabbit:         rabbit,
 		MailServiceURL: mailURL,
+		Agent:          &agentAdapter{inner: agent},
+		Embedder:       embedder,
 	}
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/internal/check", app.handleSyncCheck)
+		log.Println("ai-compliance-service HTTP listening on :8083")
+		if err := http.ListenAndServe(":8083", mux); err != nil {
+			log.Printf("internal HTTP server error: %v", err)
+		}
+	}()
 
 	deliveries, err := consumer.Consume()
 	if err != nil {
 		log.Panicf("consume: %v", err)
 	}
+
+	quarantineDeliveries, err := consumer.ConsumeQuarantine()
+	if err != nil {
+		log.Panicf("consume quarantine: %v", err)
+	}
+
+	blockedDeliveries, err := consumer.ConsumeBlocked()
+	if err != nil {
+		log.Panicf("consume blocked: %v", err)
+	}
+
+	go app.runQuarantineWorker(quarantineDeliveries)
+	go app.runBlockedWorker(blockedDeliveries)
 
 	log.Println("ai-compliance-service ready — consuming email.ingest")
 	for d := range deliveries {
@@ -258,11 +303,14 @@ func main() {
 			_ = d.Nack(false, false)
 			continue
 		}
+		log.Printf("[email] received from=%s subject=%q tenant=%s", email.From, email.Subject, email.TenantID)
+		start := time.Now()
 		if err := app.processEmail(context.Background(), email, &agentAdapter{inner: agent}, embedder, publisher); err != nil {
-			log.Printf("processEmail error: %v — nacking", err)
+			log.Printf("[email] FAILED after %s: %v — nacking", time.Since(start).Round(time.Millisecond), err)
 			_ = d.Nack(false, true)
 			continue
 		}
+		log.Printf("[email] done in %s", time.Since(start).Round(time.Millisecond))
 		_ = d.Ack(false)
 	}
 }

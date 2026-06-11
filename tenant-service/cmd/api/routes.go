@@ -22,7 +22,13 @@ func (app *Config) routes() http.Handler {
 
 	mux.Group(func(r chi.Router) {
 		r.Use(app.APIKeyMiddleware)
+		r.Post("/v1/check", app.CheckEmail)
 		r.Post("/v1/policies", app.UploadPolicy)
+		r.Get("/v1/audit", app.GetAuditLog)
+		r.Get("/v1/quarantine", app.GetQuarantine)
+		r.Post("/v1/quarantine/{id}/review", app.ReviewQuarantine)
+		r.Get("/v1/settings", app.GetSettings)
+		r.Post("/v1/settings", app.UpdateSettings)
 	})
 
 	return mux

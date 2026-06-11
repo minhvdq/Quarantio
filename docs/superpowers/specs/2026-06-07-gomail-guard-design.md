@@ -1,7 +1,14 @@
-# GoMailGuard — Design Spec
+# GoMailGuard — Design Spec (SUPERSEDED)
 **Date:** 2026-06-07  
-**Status:** Approved  
+**Status:** Superseded by `2026-06-10-gomail-guard-product-spec.md`  
 **License:** AGPL v3
+
+> **Note:** This spec predates the product strategy pivot. Key differences in the current spec:
+> - Migrated from Gemini to Mistral (mistral-small-latest + mistral-embed, 1024-dim)
+> - No longer self-hosted only — now a hosted SaaS (B2B API product + SMB Shield product)
+> - HIGH verdict goes to quarantine (priority flag), not a dead-end blocked queue
+> - Sync check endpoint (`POST /v1/check`) is the primary B2B product, not async-only
+> - Data privacy (GDPR DPA chain, retention, erasure) is now a first-class requirement
 
 ---
 

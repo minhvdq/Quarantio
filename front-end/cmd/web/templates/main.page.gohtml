@@ -1,333 +1,666 @@
 {{template "base" .}}
 
-{{define "content" }}
-    <div id="auth-page">
-        <div class="container d-flex justify-content-center align-items-center vh-100">
-            <div class="col-12 col-md-6 col-lg-4">
-                <h1 class="mb-3 d-flex justify-content-center align-items-center"> Welcome to Mailer!</h1>
-                <form style="outline: 1px solid silver; padding: 2em;" id="auth-form">
-                    <div class="mb-3">
-                        <label for="authEmail" class="form-label">Email address</label>
-                        <input type="email" class="form-control" id="authEmail" aria-describedby="emailHelp">
-                    </div>
-                    <div class="mb-3">
-                        <label for="authPassword" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="authPassword">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Submit</button>
-                </form>
+{{define "content"}}
+<!-- Setup Screen -->
+<div id="setup-screen" style="display:none;">
+  <div class="container d-flex justify-content-center align-items-center" style="min-height:100vh;">
+    <div class="col-12 col-md-5">
+      <div class="card shadow-sm">
+        <div class="card-body p-4">
+          <h4 class="mb-1">GoMailGuard</h4>
+          <p class="text-muted mb-4">Enter your API key to continue, or register a new organization.</p>
+
+          <div id="setup-error" class="alert alert-danger d-none"></div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">API Key</label>
+            <input type="text" class="form-control font-monospace" id="apiKeyInput" placeholder="Paste your API key...">
+          </div>
+          <button class="btn btn-primary w-100 mb-3" id="saveKeyBtn">Save & Continue</button>
+
+          <hr class="my-3">
+          <p class="text-muted small mb-2">No account yet? Register a new organization:</p>
+          <div class="mb-2">
+            <input type="text" class="form-control" id="orgNameInput" placeholder="Organization name">
+          </div>
+          <button class="btn btn-outline-primary w-100" id="registerBtn">Register Organization</button>
+          <div id="register-result" class="mt-3 d-none">
+            <div class="alert alert-success small p-2">
+              <strong>Organization created!</strong><br>
+              Tenant ID: <span id="new-tenant-id" class="font-monospace"></span><br>
+              API Key: <span id="new-api-key" class="font-monospace"></span><br>
+              <small class="text-muted">Copy your API key — it won't be shown again.</small>
             </div>
+          </div>
         </div>
+      </div>
     </div>
-    <div id="mail-page" style="display:none;">
-        <div class="container d-flex justify-content-center align-items-center vh-100">
-            <div class="col-12 col-md-6 col-lg-4">
-                <h1 class="mb-3 d-flex justify-content-center align-items-center" id="hi-text"></h1>
-                <form style="outline: 1px solid silver; padding: 2em;" id="mail-form">
-                    <div class="mb-3">
-                        <label for="toEmail" class="form-label">To Email Address:</label>
-                        <input type="email" class="form-control" id="toEmail" aria-describedby="emailHelp">
-                    </div>
-                    <div class="mb-3">
-                        <label for="subject" class="form-label">Title:</label>
-                        <input type="text" class="form-control" id="subject">
-                    </div>
-                    <div class="mb-3">
-                        <label for="message" class="form-label">Messsage:</label>
-                        <input type="text" class="form-control" id="message">
-                    </div>
-                    <div id="error-section">
-                    </div>
-                    <button type="submit-mail" class="btn btn-primary">Submit</button>
-                </form>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="main-app" style="display:none;">
+  <nav class="navbar navbar-expand navbar-dark bg-dark px-4">
+    <span class="navbar-brand fw-bold">GoMailGuard</span>
+    <ul class="navbar-nav ms-auto me-3">
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="check">Check Email</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="send">Send Email</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="audit">Audit Log</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="quarantine">
+        Quarantine <span id="quarantine-badge" class="badge bg-warning text-dark ms-1" style="display:none;"></span>
+      </a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="settings">Settings</a></li>
+    </ul>
+    <button class="btn btn-outline-light btn-sm" id="logoutBtn">Logout</button>
+  </nav>
+
+  <!-- Check Email Tab -->
+  <div id="tab-check" class="tab-pane container py-4" style="display:none;">
+    <div class="row justify-content-center">
+      <div class="col-md-6">
+        <h5 class="mb-1">Check Email</h5>
+        <p class="text-muted small mb-3">Get an instant compliance verdict before sending.</p>
+        <div class="card shadow-sm mb-3">
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label">From</label>
+              <input type="email" class="form-control" id="checkFrom" placeholder="you@company.com">
             </div>
+            <div class="mb-3">
+              <label class="form-label">To</label>
+              <input type="email" class="form-control" id="checkTo" placeholder="recipient@example.com">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Subject</label>
+              <input type="text" class="form-control" id="checkSubject">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Message</label>
+              <textarea class="form-control" id="checkMessage" rows="5"></textarea>
+            </div>
+            <button class="btn btn-primary w-100" id="checkBtn">
+              <span id="checkSpinner" class="spinner-border spinner-border-sm me-2 d-none"></span>
+              Check Compliance
+            </button>
+          </div>
         </div>
+
+        <!-- Result card — hidden until a check completes -->
+        <div id="check-result" class="d-none">
+          <div id="check-result-card" class="card shadow-sm border-0">
+            <div class="card-body">
+              <div class="d-flex align-items-center gap-2 mb-3">
+                <span class="fs-6 fw-semibold">Verdict</span>
+                <span id="check-verdict-badge" class="badge fs-6"></span>
+              </div>
+              <div id="check-violations-wrap" class="mb-2 d-none">
+                <p class="mb-1 fw-semibold small">Violations</p>
+                <div id="check-violations"></div>
+              </div>
+              <div id="check-reasoning-wrap" class="mb-2 d-none">
+                <p class="mb-1 fw-semibold small">Reasoning</p>
+                <p id="check-reasoning" class="text-muted small mb-0"></p>
+              </div>
+              <div id="check-remediated-wrap" class="d-none">
+                <p class="mb-1 fw-semibold small">Suggested rewrite</p>
+                <pre id="check-remediated" class="bg-light p-2 rounded small" style="white-space:pre-wrap;"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
+  </div>
+
+  <!-- Send Email Tab -->
+  <div id="tab-send" class="tab-pane container py-4" style="display:none;">
+    <div class="row justify-content-center">
+      <div class="col-md-6">
+        <h5 class="mb-3">Send Email</h5>
+        <div id="send-alert" class="d-none"></div>
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="mb-3">
+              <label class="form-label">From</label>
+              <input type="email" class="form-control" id="sendFrom" placeholder="you@company.com">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">To</label>
+              <input type="email" class="form-control" id="sendTo" placeholder="recipient@example.com">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Subject</label>
+              <input type="text" class="form-control" id="sendSubject">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Message</label>
+              <textarea class="form-control" id="sendMessage" rows="5"></textarea>
+            </div>
+            <button class="btn btn-primary w-100" id="sendBtn">
+              <span id="sendSpinner" class="spinner-border spinner-border-sm me-2 d-none"></span>
+              Send for Compliance Review
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit Log Tab -->
+  <div id="tab-audit" class="tab-pane container-fluid py-4" style="display:none;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Audit Log</h5>
+      <div class="d-flex gap-2">
+        <select class="form-select form-select-sm" id="auditFilter" style="width:auto;">
+          <option value="">All verdicts</option>
+          <option value="CLEAN">CLEAN</option>
+          <option value="LOW">LOW</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="HIGH">HIGH</option>
+        </select>
+        <button class="btn btn-outline-secondary btn-sm" id="auditRefreshBtn">Refresh</button>
+      </div>
+    </div>
+    <div id="audit-loading" class="text-center py-5 text-muted">Loading...</div>
+    <div id="audit-table-wrap" class="d-none">
+      <table class="table table-hover table-sm">
+        <thead class="table-dark">
+          <tr>
+            <th>Time</th>
+            <th>From</th>
+            <th>Subject</th>
+            <th>Verdict</th>
+            <th>Action</th>
+            <th>Violations</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody"></tbody>
+      </table>
+      <p id="audit-empty" class="text-center text-muted py-4 d-none">No entries found.</p>
+    </div>
+  </div>
+
+  <!-- Quarantine Tab -->
+  <div id="tab-quarantine" class="tab-pane container-fluid py-4" style="display:none;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Quarantine Queue</h5>
+      <button class="btn btn-outline-secondary btn-sm" id="quarantineRefreshBtn">Refresh</button>
+    </div>
+    <div id="quarantine-loading" class="text-center py-5 text-muted">Loading...</div>
+    <div id="quarantine-table-wrap" class="d-none">
+      <table class="table table-hover table-sm">
+        <thead class="table-dark">
+          <tr>
+            <th>Time</th>
+            <th>From</th>
+            <th>To</th>
+            <th>Subject</th>
+            <th>Violations</th>
+            <th>Priority</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="quarantine-tbody"></tbody>
+      </table>
+      <p id="quarantine-empty" class="text-center text-muted py-4 d-none">No items in quarantine.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Tab -->
+<div id="tab-settings" class="tab-pane container py-4" style="display:none;">
+  <h5 class="mb-4">Compliance Settings</h5>
+  <div id="settings-alert" class="d-none mb-3"></div>
+  <form id="settingsForm" style="max-width:480px;">
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Email Routing</div>
+      <div class="card-body">
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" id="autoDeliverLow" checked>
+          <label class="form-check-label" for="autoDeliverLow">
+            Auto-deliver <span class="badge bg-info">LOW</span> emails after redaction
+            <div class="text-muted small">When off, LOW emails go to quarantine for manual review.</div>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Data Retention</div>
+      <div class="card-body">
+        <label class="form-label" for="retentionDays">Retain audit &amp; quarantine data for</label>
+        <div class="input-group" style="max-width:200px;">
+          <input type="number" class="form-control" id="retentionDays" min="1" max="3650" value="90">
+          <span class="input-group-text">days</span>
+        </div>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Settings</button>
+  </form>
+</div>
+
+<!-- Email Detail Modal -->
+<div class="modal fade" id="emailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalSubject"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1"><strong>From:</strong> <span id="modalFrom"></span></p>
+        <p class="mb-1"><strong>To:</strong> <span id="modalTo"></span></p>
+        <hr>
+        <pre id="modalBody" class="bg-light p-3 rounded" style="white-space:pre-wrap;font-size:.9em;"></pre>
+        <div id="modalViolations" class="mt-2"></div>
+        <div id="modalReasoning" class="mt-2 text-muted small"></div>
+      </div>
+      <div class="modal-footer" id="modalActions"></div>
+    </div>
+  </div>
+</div>
 {{end}}
 
 {{define "js"}}
-    <script>
-    const authPage = document.getElementById("auth-page")
-    const authForm = document.getElementById("auth-form")
-    const mailPage = document.getElementById("mail-page")
-    const toEmail  = document.getElementById("toEmail")
-    const title    = document.getElementById("subject")
-    const msg      = document.getElementById("message")
-    const errorSection = document.getElementById("error-section")
-    const hiText = document.getElementById("hi-text")
-    let userEmail
+<script>
+const BROKER_URL    = {{.BrokerURL}};
+const TENANT_URL    = {{.TenantSvcURL}};
+const STORAGE_KEY   = "gomail_api_key";
+const TENANT_ID_KEY = "gomail_tenant_id";
 
-    let brokerBtn     = document.getElementById("brokerBtn")
-    let authBrokerBtn = document.getElementById("authBrokerBtn")
-    let logBtn        = document.getElementById("logBtn")
-    let mailBtn       = document.getElementById("mailBtn")
-    let logGBtn       = document.getElementById("logGBtn")
+let apiKey   = localStorage.getItem(STORAGE_KEY)   || "";
+let tenantID = localStorage.getItem(TENANT_ID_KEY) || "";
+let currentModal = null;
 
+// ── Boot ──────────────────────────────────────────────────────────────────────
+function boot() {
+  if (apiKey) {
+    showApp();
+    showTab("check");
+  } else {
+    document.getElementById("setup-screen").style.display = "block";
+  }
+}
 
-    let output = document.getElementById("output")
-    let sent = document.getElementById("payload")
-    let received = document.getElementById("received")
-    const backendURL = {{.BrokerURL}}
-    console.log('The backed url is ', backendURL)
+function showApp() {
+  document.getElementById("setup-screen").style.display = "none";
+  document.getElementById("main-app").style.display     = "block";
+}
 
-    authForm.addEventListener("submit", (e) => {
-        e.preventDefault();
-        let email = document.getElementById("authEmail").value
-        let password = document.getElementById("authPassword").value
+// ── Setup ─────────────────────────────────────────────────────────────────────
+document.getElementById("saveKeyBtn").addEventListener("click", () => {
+  const key = document.getElementById("apiKeyInput").value.trim();
+  if (!key) return;
+  apiKey = key;
+  localStorage.setItem(STORAGE_KEY, key);
+  showApp();
+  showTab("send");
+});
 
-        const payload = {
-            action: "auth",
-            auth: {
-                email: "" + email,
-                password: "" + password,
-            }
-        }
+document.getElementById("registerBtn").addEventListener("click", async () => {
+  const name = document.getElementById("orgNameInput").value.trim();
+  if (!name) return;
+  const res  = await fetch(`${TENANT_URL}/v1/organizations`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({name}),
+  });
+  const data = await res.json();
+  if (data.error) {
+    document.getElementById("setup-error").textContent = data.message;
+    document.getElementById("setup-error").classList.remove("d-none");
+    return;
+  }
+  tenantID = data.data.tenant_id;
+  apiKey   = data.data.api_key;
+  localStorage.setItem(STORAGE_KEY,   apiKey);
+  localStorage.setItem(TENANT_ID_KEY, tenantID);
+  document.getElementById("new-tenant-id").textContent = tenantID;
+  document.getElementById("new-api-key").textContent   = apiKey;
+  document.getElementById("register-result").classList.remove("d-none");
+  document.getElementById("apiKeyInput").value = apiKey;
+});
 
-        const headers = new Headers();
-        headers.append('Content-Type', 'application/json')
+document.getElementById("logoutBtn").addEventListener("click", () => {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(TENANT_ID_KEY);
+  apiKey = ""; tenantID = "";
+  document.getElementById("main-app").style.display     = "none";
+  document.getElementById("setup-screen").style.display = "block";
+});
 
-        const body = {
-            method: "POST",
-            body: JSON.stringify(payload),
-            headers: headers,
-        }
+// ── Tab nav ───────────────────────────────────────────────────────────────────
+document.querySelectorAll("[data-tab]").forEach(el => {
+  el.addEventListener("click", e => { e.preventDefault(); showTab(el.dataset.tab); });
+});
 
-        fetch(`${backendURL}/handle`, body)
-        .then((response) => response.json())
-        .then((data) => {
+function showTab(name) {
+  document.querySelectorAll(".tab-pane").forEach(p => p.style.display = "none");
+  document.querySelectorAll("[data-tab]").forEach(a => a.classList.remove("active"));
+  document.getElementById("tab-" + name).style.display = "block";
+  document.querySelector(`[data-tab="${name}"]`).classList.add("active");
+  if (name === "audit")      loadAudit();
+  if (name === "quarantine") loadQuarantine();
+  if (name === "settings")   loadSettings();
+}
 
-            console.log('Response: ' + data.message)
-            {{/* sent.innerHTML = JSON.stringify(payload, undefined, 4 )
-            received.innerHTML = JSON.stringify(data, undefined, 4) */}}
-            if( data.error){
-                console.log(`Error is: ${data.error}`)
-                {{/* output.innerHTML += `<br> <strong> Error:</string> ${data.message}` */}}
-            }else{
-                userEmail = email
-                hiText.innerHTML = `Hi, ${email}`
-                authPage.style.display = "none";
-                mailPage.style.display = "block";
-            }
-        })
-        .catch((error) => {
-            console.log('error: ', error)
-        })
+// ── Check Email ───────────────────────────────────────────────────────────────
+document.getElementById("checkBtn").addEventListener("click", async () => {
+  const from    = document.getElementById("checkFrom").value.trim();
+  const to      = document.getElementById("checkTo").value.trim();
+  const subject = document.getElementById("checkSubject").value.trim();
+  const message = document.getElementById("checkMessage").value.trim();
+  const spinner = document.getElementById("checkSpinner");
+  const btn     = document.getElementById("checkBtn");
+  const result  = document.getElementById("check-result");
 
-        
+  if (!from || !to || !message) return;
 
-    })
+  result.classList.add("d-none");
+  spinner.classList.remove("d-none");
+  btn.disabled = true;
 
+  try {
+    const res  = await fetch(`${TENANT_URL}/v1/check`, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to, subject, message }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.message); return; }
+    renderCheckResult(data.data);
+  } catch(e) {
+    alert("Network error: " + e.message);
+  } finally {
+    spinner.classList.add("d-none");
+    btn.disabled = false;
+  }
+});
 
-    mailPage.addEventListener("submit", (e) => {
-        e.preventDefault()
-        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+function renderCheckResult(d) {
+  const verdictColors = { CLEAN:"success", LOW:"info", MEDIUM:"warning", HIGH:"danger" };
+  const cardBorders   = { CLEAN:"border-success", LOW:"border-info", MEDIUM:"border-warning", HIGH:"border-danger" };
+  const verdict = d.verdict || "UNKNOWN";
 
-        // Check if the email is filled and formatted right
-        if( toEmail.length == 0 || !emailPattern.test(toEmail.value)){
-            errorSection.innerHTML = `<br> <strong> Error:</string> Invalid email format`
-            return
-        }
+  const card = document.getElementById("check-result-card");
+  card.className = "card shadow-sm border-2 " + (cardBorders[verdict] || "border-secondary");
 
-        const payload = {
-            action: "mail",
-            mail: {
-                from: userEmail,
-                to: toEmail.value,
-                subject: title.value,
-                message: msg.value,
-            }
-        }
+  const badge = document.getElementById("check-verdict-badge");
+  badge.className = "badge fs-6 bg-" + (verdictColors[verdict] || "secondary");
+  badge.textContent = verdict;
 
-        const headers = new Headers();
-        headers.append('Content-Type', 'application/json')
+  const violations = d.violations || [];
+  const violWrap = document.getElementById("check-violations-wrap");
+  if (violations.length) {
+    document.getElementById("check-violations").innerHTML =
+      violations.map(v => `<span class="badge bg-danger me-1 mb-1">${v}</span>`).join("");
+    violWrap.classList.remove("d-none");
+  } else {
+    violWrap.classList.add("d-none");
+  }
 
-        const body = {
-            method: "POST",
-            body: JSON.stringify(payload),
-            headers: headers,
-        }
+  const reasoning = d.reasoning || "";
+  const reasonWrap = document.getElementById("check-reasoning-wrap");
+  if (reasoning) {
+    document.getElementById("check-reasoning").textContent = reasoning;
+    reasonWrap.classList.remove("d-none");
+  } else {
+    reasonWrap.classList.add("d-none");
+  }
 
-        fetch(`${backendURL}/handle`, body)
-        .then((response) => response.json())
-        .then((data) => {
-            {{/* sent.innerHTML = JSON.stringify(payload, undefined, 4 )
-            received.innerHTML = JSON.stringify(data, undefined, 4) */}}
-            if( data.error){
-                errorSection += `<br> <strong> Error:</string> ${data.message}`
-            }else{
-                {{/* output.innerHTML += `<br><strong>Response from broker service </storage>: ${data.message}` */}}
-                confirm(`You have sent an email to ${toEmail.value}`)
-            }
-        })
-        .catch((error) => {
-            output.innerHTML += "<br><br> Error: " + error
-        })
+  const remediated = d.remediated_body || "";
+  const remWrap = document.getElementById("check-remediated-wrap");
+  if (remediated) {
+    document.getElementById("check-remediated").textContent = remediated;
+    remWrap.classList.remove("d-none");
+  } else {
+    remWrap.classList.add("d-none");
+  }
 
+  document.getElementById("check-result").classList.remove("d-none");
+}
 
-    })
+// ── Send Email ────────────────────────────────────────────────────────────────
+document.getElementById("sendBtn").addEventListener("click", async () => {
+  const from    = document.getElementById("sendFrom").value.trim();
+  const to      = document.getElementById("sendTo").value.trim();
+  const subject = document.getElementById("sendSubject").value.trim();
+  const message = document.getElementById("sendMessage").value.trim();
+  const alertEl = document.getElementById("send-alert");
+  const spinner = document.getElementById("sendSpinner");
 
-    {{/* const backendURL = "http://localhost:8080" */}}
+  alertEl.className = "d-none";
+  if (!from || !to || !subject || !message) {
+    alertEl.className = "alert alert-warning";
+    alertEl.textContent = "All fields are required.";
+    return;
+  }
 
+  spinner.classList.remove("d-none");
+  document.getElementById("sendBtn").disabled = true;
 
-    mailBtn.addEventListener("click", () => {
-        const payload = {
-            action: "mail",
-            mail: {
-                from: "me@example.com",
-                to: "you@example.com",
-                subject: "Test Mail",
-                message: "Just to test",
-            }
-        }
+  try {
+    const res  = await fetch(`${BROKER_URL}/handle`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        Action: "mail",
+        mail: { from, to, subject, message, tenant_id: tenantID },
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      alertEl.className   = "alert alert-danger";
+      alertEl.textContent = data.message;
+    } else {
+      alertEl.className   = "alert alert-success";
+      alertEl.textContent = "Email submitted for compliance review.";
+      document.getElementById("sendFrom").value    = "";
+      document.getElementById("sendTo").value      = "";
+      document.getElementById("sendSubject").value = "";
+      document.getElementById("sendMessage").value = "";
+    }
+  } catch(e) {
+    alertEl.className   = "alert alert-danger";
+    alertEl.textContent = "Network error: " + e.message;
+  } finally {
+    spinner.classList.add("d-none");
+    document.getElementById("sendBtn").disabled = false;
+  }
+});
 
-        const headers = new Headers();
-        headers.append('Content-Type', 'application/json')
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+async function loadAudit() {
+  const verdict  = document.getElementById("auditFilter").value;
+  const loading  = document.getElementById("audit-loading");
+  const wrap     = document.getElementById("audit-table-wrap");
+  const tbody    = document.getElementById("audit-tbody");
+  const empty    = document.getElementById("audit-empty");
 
-        const body = {
-            method: "POST",
-            body: JSON.stringify(payload),
-            headers: headers,
-        }
+  loading.style.display = "block";
+  wrap.classList.add("d-none");
 
-        fetch(`${backendURL}/handle`, body)
-        .then((response) => response.json())
-        .then((data) => {
-            sent.innerHTML = JSON.stringify(payload, undefined, 4 )
-            received.innerHTML = JSON.stringify(data, undefined, 4)
-            if( data.error){
-                output.innerHTML += `<br> <strong> Error:</string> ${data.message}`
-            }else{
-                output.innerHTML += `<br><strong>Response from broker service </storage>: ${data.message}`
-            }
-        })
-        .catch((error) => {
-            output.innerHTML += "<br><br> Error: " + error
-        })
-    })
+  const url = `${TENANT_URL}/v1/audit${verdict ? "?verdict=" + verdict : ""}`;
+  const res = await fetch(url, { headers: { Authorization: "Bearer " + apiKey } });
+  const data = await res.json();
 
-    logGBtn.addEventListener("click", () => {
-        const payload = {
-            action: "log",
-            log:{
-                name: "event",
-                data: "some kind of gRPC data",
-            }
-        }
+  loading.style.display = "none";
+  wrap.classList.remove("d-none");
 
-        const headers = new Headers()
-        headers.append("Content-Type", "application/json")
+  const entries = data.data || [];
+  tbody.innerHTML = "";
+  empty.classList.toggle("d-none", entries.length > 0);
 
-        const body = {
-            method: "POST",
-            body: JSON.stringify(payload),
-            headers: headers,
-        }
+  entries.forEach(e => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="text-nowrap small">${fmtTime(e.created_at)}</td>
+      <td class="small">${e.email_from}</td>
+      <td class="small">${e.email_subject || "—"}</td>
+      <td>${verdictBadge(e.verdict)}</td>
+      <td><span class="badge bg-secondary">${e.action_taken}</span></td>
+      <td class="small text-muted">${(e.violations||[]).join(", ") || "—"}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
-        fetch(`${backendURL}/log-grpc`, body)
-        .then((response) => response.json())
-        .then((data) => {
-            sent.innerHTML = JSON.stringify(payload, undefined, 4 )
-            received.innerHTML = JSON.stringify(data, undefined, 4)
-            if( data.error){
-                output.innerHTML += `<br> <strong> Error:</string> ${data.message}`
-            }else{
-                output.innerHTML += `<br><strong>Response from broker service </storage>: ${data.message}`
-            }
-        })
-        .catch((error) => {
-            output.innerHTML += "<br><br> Error: " + error
-        })
-    })
+document.getElementById("auditFilter").addEventListener("change", loadAudit);
+document.getElementById("auditRefreshBtn").addEventListener("click", loadAudit);
 
+// ── Quarantine ────────────────────────────────────────────────────────────────
+async function loadQuarantine() {
+  const loading = document.getElementById("quarantine-loading");
+  const wrap    = document.getElementById("quarantine-table-wrap");
+  const tbody   = document.getElementById("quarantine-tbody");
+  const empty   = document.getElementById("quarantine-empty");
+  const badge   = document.getElementById("quarantine-badge");
 
-    logBtn.addEventListener("click", () => {
-        const payload = {
-            action: "log",
-            log:{
-                name: "event",
-                data: "some kind of data",
-            }
-        }
+  loading.style.display = "block";
+  wrap.classList.add("d-none");
 
-        const headers = new Headers()
-        headers.append("Content-Type", "application/json")
+  const res  = await fetch(`${TENANT_URL}/v1/quarantine?status=pending`, {
+    headers: { Authorization: "Bearer " + apiKey },
+  });
+  const data = await res.json();
 
-        const body = {
-            method: "POST",
-            body: JSON.stringify(payload),
-            headers: headers,
-        }
+  loading.style.display = "none";
+  wrap.classList.remove("d-none");
 
-        fetch(`${backendURL}/handle`, body)
-        .then((response) => response.json())
-        .then((data) => {
-            sent.innerHTML = JSON.stringify(payload, undefined, 4 )
-            received.innerHTML = JSON.stringify(data, undefined, 4)
-            if( data.error){
-                output.innerHTML += `<br> <strong> Error:</string> ${data.message}`
-            }else{
-                output.innerHTML += `<br><strong>Response from broker service </storage>: ${data.message}`
-            }
-        })
-        .catch((error) => {
-            output.innerHTML += "<br><br> Error: " + error
-        })
-    })
+  const entries = data.data || [];
+  const pending = entries.filter(e => e.status === "pending").length;
+  badge.textContent     = pending;
+  badge.style.display   = pending > 0 ? "inline" : "none";
 
-    authBrokerBtn.addEventListener("click", () => {
-        const payload = {
-            action: "auth",
-            auth: {
-                email: "admin@example.com",
-                password: "verysecret",
-            }
-        }
+  tbody.innerHTML = "";
+  empty.classList.toggle("d-none", entries.length > 0);
 
-        const headers = new Headers();
-        headers.append('Content-Type', 'application/json')
+  entries.forEach(e => {
+    const tr = document.createElement("tr");
+    if (e.status === "pending") {
+      tr.className = e.priority === "high" ? "table-danger" : "table-warning";
+    }
+    tr.innerHTML = `
+      <td class="text-nowrap small">${fmtTime(e.created_at)}</td>
+      <td class="small">${e.email_from}</td>
+      <td class="small">${e.email_to}</td>
+      <td class="small">${e.subject || "—"}</td>
+      <td class="small text-muted">${(e.violations||[]).join(", ") || "—"}</td>
+      <td>${priorityBadge(e.priority)}</td>
+      <td>${statusBadge(e.status)}</td>
+      <td>
+        ${e.status === "pending" ? `
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="openModal('${e.id}')">Review</button>
+          <button class="btn btn-sm btn-success me-1"         onclick="doReview('${e.id}','release')">Release</button>
+          <button class="btn btn-sm btn-danger"               onclick="doReview('${e.id}','reject')">Reject</button>
+        ` : `<span class="text-muted small">Reviewed</span>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
-        const body = {
-            method: "POST",
-            body: JSON.stringify(payload),
-            headers: headers,
-        }
+document.getElementById("quarantineRefreshBtn").addEventListener("click", loadQuarantine);
 
-        fetch(`${backendURL}/handle`, body)
-        .then((response) => response.json())
-        .then((data) => {
-            sent.innerHTML = JSON.stringify(payload, undefined, 4 )
-            received.innerHTML = JSON.stringify(data, undefined, 4)
-            if( data.error){
-                output.innerHTML += `<br> <strong> Error:</string> ${data.message}`
-            }else{
-                output.innerHTML += `<br><strong>Response from broker service </storage>: ${data.message}`
-            }
-        })
-        .catch((error) => {
-            output.innerHTML += "<br><br> Error: " + error
-        })
-    })
+async function doReview(id, action) {
+  await fetch(`${TENANT_URL}/v1/quarantine/${id}/review`, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  if (currentModal) { currentModal.hide(); currentModal = null; }
+  loadQuarantine();
+}
 
-    brokerBtn.addEventListener("click", () => {
-        const body = {
-            method: "POST",
-        }
+async function openModal(id) {
+  const res  = await fetch(`${TENANT_URL}/v1/quarantine?status=`, {
+    headers: { Authorization: "Bearer " + apiKey },
+  });
+  const data = await res.json();
+  const e    = (data.data || []).find(x => x.id === id);
+  if (!e) return;
 
-        console.log('The url is', {{.BrokerURL}})
-        fetch(backendURL, body)
-        .then((response) => response.json())
-        .then((data) => {
-            sent.innerHTML = "empty post request"
-            received.innerHTML = JSON.stringify(data, undefined, 4)
-            if( data.error){
-                console.log(data.message)
-            }else{
-                output.innerHTML += `<br><strong>Response from broker service </storage>: ${data.message}`
-            }
-        })
-        .catch((error) => {
-            output.innerHTML += "<br><br> Error: " + error
-        })
-    })
-    </script>
+  document.getElementById("modalSubject").textContent   = e.subject || "(no subject)";
+  document.getElementById("modalFrom").textContent      = e.email_from;
+  document.getElementById("modalTo").textContent        = e.email_to;
+  document.getElementById("modalBody").textContent      = e.body;
+  document.getElementById("modalViolations").innerHTML  =
+    (e.violations||[]).length
+      ? "<strong>Violations:</strong> " + e.violations.map(v => `<span class="badge bg-danger me-1">${v}</span>`).join("")
+      : "";
+  document.getElementById("modalReasoning").textContent = e.reasoning ? "Reasoning: " + e.reasoning : "";
+
+  const actions = document.getElementById("modalActions");
+  if (e.status === "pending") {
+    actions.innerHTML = `
+      <button class="btn btn-success" onclick="doReview('${e.id}','release')">Release & Deliver</button>
+      <button class="btn btn-danger ms-2" onclick="doReview('${e.id}','reject')">Reject</button>
+    `;
+  } else {
+    actions.innerHTML = `<span class="text-muted">Already ${e.status}</span>`;
+  }
+
+  currentModal = new bootstrap.Modal(document.getElementById("emailModal"));
+  currentModal.show();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function verdictBadge(v) {
+  const colors = { CLEAN:"success", LOW:"info", MEDIUM:"warning", HIGH:"danger" };
+  return `<span class="badge bg-${colors[v]||'secondary'}">${v}</span>`;
+}
+
+function statusBadge(s) {
+  const colors = { pending:"warning", released:"success", rejected:"secondary" };
+  return `<span class="badge bg-${colors[s]||'secondary'} text-dark">${s}</span>`;
+}
+
+function priorityBadge(p) {
+  return p === "high"
+    ? `<span class="badge bg-danger">HIGH</span>`
+    : `<span class="badge bg-warning text-dark">MEDIUM</span>`;
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  const res = await fetch(`${TENANT_URL}/v1/settings`, {
+    headers: { Authorization: "Bearer " + apiKey },
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  const s = data.data || {};
+  document.getElementById("autoDeliverLow").checked = s.auto_deliver_low !== false;
+  document.getElementById("retentionDays").value     = s.retention_days || 90;
+}
+
+document.getElementById("settingsForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const alert = document.getElementById("settings-alert");
+  const body = {
+    auto_deliver_low: document.getElementById("autoDeliverLow").checked,
+    retention_days:   parseInt(document.getElementById("retentionDays").value, 10) || 90,
+  };
+  const res = await fetch(`${TENANT_URL}/v1/settings`, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) {
+    alert.className = "alert alert-success";
+    alert.textContent = "Settings saved.";
+  } else {
+    alert.className = "alert alert-danger";
+    alert.textContent = "Failed to save settings.";
+  }
+  alert.classList.remove("d-none");
+  setTimeout(() => alert.classList.add("d-none"), 3000);
+});
+
+boot();
+</script>
 {{end}}
