@@ -365,6 +365,42 @@ func (m *Models) DeleteTenantData(ctx context.Context, tenantID string) error {
 	return nil
 }
 
+// QueryUserQuarantine returns quarantine entries addressed to a specific email (user-scoped view).
+func (m *Models) QueryUserQuarantine(ctx context.Context, tenantID, emailTo, status string) ([]QuarantineEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	query := `
+		SELECT id, email_from, email_to, subject, body,
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       COALESCE(reasoning, ''), status, COALESCE(priority, 'medium'), created_at
+		FROM quarantine
+		WHERE tenant_id = $1 AND email_to = $2 AND ($3 = '' OR status = $3)
+		ORDER BY created_at DESC
+		LIMIT 100
+	`
+	rows, err := m.db.QueryContext(ctx, query, tenantID, emailTo, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []QuarantineEntry
+	for rows.Next() {
+		var e QuarantineEntry
+		if err := rows.Scan(&e.ID, &e.EmailFrom, &e.EmailTo, &e.Subject, &e.Body,
+			pq.Array(&e.Violations), &e.Reasoning, &e.Status, &e.Priority, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		e.Body = m.decryptBody(e.Body)
+		entries = append(entries, e)
+	}
+	if entries == nil {
+		entries = []QuarantineEntry{}
+	}
+	return entries, rows.Err()
+}
+
 func (m *Models) UpdateQuarantineStatus(ctx context.Context, id, tenantID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
 	defer cancel()

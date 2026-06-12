@@ -20,14 +20,45 @@ import (
 const webPort = "8082"
 
 type Store interface {
+	// Tenant / API key
 	CreateTenant(ctx context.Context, name string) (*data.Tenant, error)
 	GenerateAPIKey(ctx context.Context, tenantID, label string) (string, error)
 	ValidateAPIKey(ctx context.Context, rawKey string) (string, error)
+
+	// Users & auth
+	CreateUser(ctx context.Context, email, password, firstName, lastName string) (*data.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*data.User, error)
+	GetUserByID(ctx context.Context, id string) (*data.User, error)
+
+	// Sessions
+	CreateSession(ctx context.Context, userID string) (string, error)
+	ValidateSession(ctx context.Context, rawToken string) (string, error)
+	DeleteSession(ctx context.Context, rawToken string) error
+
+	// Org / members
+	CreateTenantWithDomain(ctx context.Context, name, domain string) (*data.Tenant, error)
+	GetTenantByDomain(ctx context.Context, domain string) (*data.Tenant, error)
+	CreateOrgMember(ctx context.Context, userID, tenantID, role string, invitedBy *string) error
+	GetOrgMember(ctx context.Context, userID, tenantID string) (*data.OrgMember, error)
+	GetUserPrimaryTenant(ctx context.Context, userID string) (*data.Tenant, string, error)
+	ListOrgMembers(ctx context.Context, tenantID string) ([]data.OrgMember, error)
+	UpdateOrgMemberRole(ctx context.Context, memberID, tenantID, newRole string) error
+	RemoveOrgMember(ctx context.Context, memberID, tenantID string) error
+
+	// Embeddings / compliance
 	InsertPolicyEmbedding(ctx context.Context, tenantID, filename string, chunkIndex int, content string, embedding []float32) error
 	QueryAuditLog(ctx context.Context, tenantID, verdict string, limit int) ([]data.AuditEntry, error)
 	QueryQuarantine(ctx context.Context, tenantID, status string) ([]data.QuarantineEntry, error)
+	QueryUserQuarantine(ctx context.Context, tenantID, emailTo, status string) ([]data.QuarantineEntry, error)
 	GetQuarantineByID(ctx context.Context, id, tenantID string) (*data.QuarantineEntry, error)
 	UpdateQuarantineStatus(ctx context.Context, id, tenantID, status string) error
+
+	// Release requests
+	CreateReleaseRequest(ctx context.Context, quarantineID, tenantID, userID, note string) (*data.ReleaseRequest, error)
+	ListReleaseRequests(ctx context.Context, tenantID, status string) ([]data.ReleaseRequest, error)
+	ActionReleaseRequest(ctx context.Context, requestID, tenantID, reviewerID, action string) error
+
+	// Settings / GDPR / policies
 	GetSettings(ctx context.Context, tenantID string) (*data.TenantSettings, error)
 	UpsertSettings(ctx context.Context, tenantID string, s data.TenantSettings) error
 	ExportTenantData(ctx context.Context, tenantID string) (*data.TenantExport, error)
@@ -41,11 +72,12 @@ type Embedder interface {
 }
 
 type Config struct {
-	DB                *sql.DB
-	Store             Store
-	GeminiKey         string
-	MailServiceURL    string
-	ComplianceSvcURL  string
+	DB               *sql.DB
+	Store            Store
+	GeminiKey        string
+	MailServiceURL   string
+	ComplianceSvcURL string
+	JWTSecret        string
 }
 
 func main() {
@@ -59,6 +91,11 @@ func main() {
 	mistralKey := os.Getenv("MISTRAL_API_KEY")
 	if mistralKey == "" {
 		log.Fatal("MISTRAL_API_KEY is required")
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET is required")
 	}
 
 	mailURL := os.Getenv("MAIL_SERVICE_URL")
@@ -84,6 +121,7 @@ func main() {
 		GeminiKey:        mistralKey,
 		MailServiceURL:   mailURL,
 		ComplianceSvcURL: complianceURL,
+		JWTSecret:        jwtSecret,
 	}
 
 	srv := &http.Server{

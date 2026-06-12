@@ -149,8 +149,17 @@ func (app *Config) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 func (app *Config) GetQuarantine(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Context().Value(contextKeyTenantID).(string)
 	status := r.URL.Query().Get("status")
+	role, _ := r.Context().Value(contextKeyRole).(string)
+	userEmail, _ := r.Context().Value(contextKeyEmail).(string)
 
-	entries, err := app.Store.QueryQuarantine(r.Context(), tenantID, status)
+	// Owners see all quarantine entries. Users see only their own (email_to = their email).
+	var entries []data.QuarantineEntry
+	var err error
+	if role == "owner" || userEmail == "" {
+		entries, err = app.Store.QueryQuarantine(r.Context(), tenantID, status)
+	} else {
+		entries, err = app.Store.QueryUserQuarantine(r.Context(), tenantID, userEmail, status)
+	}
 	if err != nil {
 		app.errorJSON(w, err, http.StatusInternalServerError)
 		return

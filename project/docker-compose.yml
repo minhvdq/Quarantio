@@ -95,6 +95,7 @@ services:
       MAIL_SERVICE_URL: "http://mail-service/send"
       COMPLIANCE_SVC_URL: "http://ai-compliance-service:8083"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
+      JWT_SECRET: "${JWT_SECRET}"
 
   ai-compliance-service:
     build:

@@ -44,6 +44,9 @@ func (m *mockStore) QueryAuditLog(_ context.Context, tenantID, verdict string, l
 func (m *mockStore) QueryQuarantine(_ context.Context, tenantID, status string) ([]data.QuarantineEntry, error) {
 	return []data.QuarantineEntry{}, m.err
 }
+func (m *mockStore) QueryUserQuarantine(_ context.Context, tenantID, emailTo, status string) ([]data.QuarantineEntry, error) {
+	return []data.QuarantineEntry{}, m.err
+}
 
 func (m *mockStore) GetQuarantineByID(_ context.Context, id, tenantID string) (*data.QuarantineEntry, error) {
 	return nil, m.err
@@ -68,6 +71,57 @@ func (m *mockStore) ListPolicies(_ context.Context, tenantID string) ([]data.Pol
 	return []data.PolicyFile{}, m.err
 }
 func (m *mockStore) DeletePolicy(_ context.Context, tenantID, filename string) error {
+	return m.err
+}
+func (m *mockStore) CreateUser(_ context.Context, email, password, firstName, lastName string) (*data.User, error) {
+	return nil, m.err
+}
+func (m *mockStore) GetUserByEmail(_ context.Context, email string) (*data.User, error) {
+	return nil, m.err
+}
+func (m *mockStore) GetUserByID(_ context.Context, id string) (*data.User, error) {
+	return nil, m.err
+}
+func (m *mockStore) CreateSession(_ context.Context, userID string) (string, error) {
+	return "", m.err
+}
+func (m *mockStore) ValidateSession(_ context.Context, rawToken string) (string, error) {
+	return "", m.err
+}
+func (m *mockStore) DeleteSession(_ context.Context, rawToken string) error {
+	return m.err
+}
+func (m *mockStore) CreateTenantWithDomain(_ context.Context, name, domain string) (*data.Tenant, error) {
+	return m.tenant, m.err
+}
+func (m *mockStore) GetTenantByDomain(_ context.Context, domain string) (*data.Tenant, error) {
+	return m.tenant, m.err
+}
+func (m *mockStore) CreateOrgMember(_ context.Context, userID, tenantID, role string, invitedBy *string) error {
+	return m.err
+}
+func (m *mockStore) GetOrgMember(_ context.Context, userID, tenantID string) (*data.OrgMember, error) {
+	return nil, m.err
+}
+func (m *mockStore) GetUserPrimaryTenant(_ context.Context, userID string) (*data.Tenant, string, error) {
+	return m.tenant, "owner", m.err
+}
+func (m *mockStore) ListOrgMembers(_ context.Context, tenantID string) ([]data.OrgMember, error) {
+	return []data.OrgMember{}, m.err
+}
+func (m *mockStore) UpdateOrgMemberRole(_ context.Context, memberID, tenantID, newRole string) error {
+	return m.err
+}
+func (m *mockStore) RemoveOrgMember(_ context.Context, memberID, tenantID string) error {
+	return m.err
+}
+func (m *mockStore) CreateReleaseRequest(_ context.Context, quarantineID, tenantID, userID, note string) (*data.ReleaseRequest, error) {
+	return nil, m.err
+}
+func (m *mockStore) ListReleaseRequests(_ context.Context, tenantID, status string) ([]data.ReleaseRequest, error) {
+	return []data.ReleaseRequest{}, m.err
+}
+func (m *mockStore) ActionReleaseRequest(_ context.Context, requestID, tenantID, reviewerID, action string) error {
 	return m.err
 }
 
