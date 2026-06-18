@@ -1,0 +1,140 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import { TENANT_URL } from '../config';
+import { useApi } from '../hooks/useApi';
+import { GmailStatus } from '../types';
+
+export function Gmail() {
+  const { apiFetch } = useApi();
+  const [status, setStatus] = useState<GmailStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`${TENANT_URL}/v1/gmail/status`);
+      if (res.ok) {
+        const data: GmailStatus = await res.json();
+        setStatus(data);
+      } else {
+        setStatus({ connected: false });
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [apiFetch]);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  const gmailConnect = () => {
+    const token = localStorage.getItem('gm_access') || '';
+    window.location.href = `${TENANT_URL}/auth/google/connect?token=${encodeURIComponent(token)}`;
+  };
+
+  const disconnectGmail = async () => {
+    await apiFetch(`${TENANT_URL}/v1/gmail/disconnect`, { method: 'DELETE' });
+    loadStatus();
+  };
+
+  const gmailScan = async (mode: '24h' | 'last') => {
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const url = `${TENANT_URL}/v1/gmail/scan${mode === 'last' ? '?since=last' : ''}`;
+      const res = await apiFetch(url, { method: 'POST' });
+      if (res.ok) {
+        const d = await res.json();
+        const s = d.data || d;
+        setScanResult(
+          `Scan complete (${mode === 'last' ? 'since last scan' : 'last 24 h'}) — ${s.scanned} checked, ${s.flagged} flagged, ${s.quarantined} quarantined, ${s.skipped} already seen.`
+        );
+        loadStatus();
+      } else {
+        setScanResult('Scan failed.');
+      }
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const lastScannedText = status?.last_scanned_at
+    ? (() => {
+        const d = new Date(status.last_scanned_at);
+        return (
+          'Last scanned: ' +
+          d.toLocaleDateString() +
+          ' ' +
+          d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        );
+      })()
+    : 'Never scanned.';
+
+  return (
+    <div className="p-6 max-w-lg">
+      <div className="mb-5">
+        <h2 className="text-base font-semibold text-gray-900">Gmail Inbox Scanner</h2>
+        <p className="text-sm text-gray-400 mt-0.5">Connect Gmail and scan your inbox for compliance issues.</p>
+      </div>
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-800 m-0">Connection Status</h3>
+        </div>
+        <div className="p-5">
+          {loading && <div className="text-sm text-gray-400">Checking…</div>}
+          {!loading && status?.connected && (
+            <div>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="px-2.5 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Connected</span>
+                <span className="text-sm text-gray-500">{status.gmail_address || ''}</span>
+              </div>
+              <p className="text-xs text-gray-400 mb-3">{lastScannedText}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => gmailScan('24h')}
+                  disabled={scanning}
+                  className="bg-brand hover:bg-brand-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-70"
+                >
+                  {scanning ? 'Scanning…' : 'Scan Last 24 h'}
+                </button>
+                <button
+                  onClick={() => gmailScan('last')}
+                  disabled={scanning || !status.last_scanned_at}
+                  className="border text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                  style={{ borderColor: '#3d9970', color: '#3d9970' }}
+                >
+                  Scan Since Last Check
+                </button>
+                <button
+                  onClick={disconnectGmail}
+                  className="ml-auto border border-red-200 text-red-600 text-sm px-3 py-2 rounded-lg hover:bg-red-50 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+              {scanResult && (
+                <div className="mt-3 text-sm bg-blue-50 text-blue-700 border border-blue-200 rounded-lg px-3 py-2.5">
+                  {scanResult}
+                </div>
+              )}
+            </div>
+          )}
+          {!loading && !status?.connected && (
+            <div>
+              <p className="text-sm text-gray-500 mb-3">No Gmail account connected.</p>
+              <button
+                onClick={gmailConnect}
+                className="border text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                style={{ borderColor: '#3d9970', color: '#3d9970' }}
+              >
+                Connect Gmail
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

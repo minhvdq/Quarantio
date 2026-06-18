@@ -16,5 +16,14 @@ project/.env
 *.out
 vendor/
 
+# Node / frontend
+front-end/node_modules/
+front-end/dist/
+front-end/.env.local
+front-end/.env.*.local
+
+# Environment files
 .env
+.env.local
+
 .gstack/

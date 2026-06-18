@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -11,12 +12,16 @@ import (
 func (app *Config) routes() http.Handler {
 	mux := chi.NewRouter()
 
-	allowedOrigin := app.FrontendURL
-	if allowedOrigin == "" {
-		allowedOrigin = "http://localhost"
+	allowedOrigins := []string{"http://localhost", "http://localhost:3000", "http://localhost:80"}
+	if app.FrontendURL != "" {
+		for _, o := range strings.Split(app.FrontendURL, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				allowedOrigins = append(allowedOrigins, o)
+			}
+		}
 	}
 	mux.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{allowedOrigin},
+		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: false,
