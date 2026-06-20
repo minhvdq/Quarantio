@@ -1,0 +1,276 @@
+QUARANTIO — APPLICATION OVERVIEW
+=================================
+Last updated: 2026-06-20
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WHAT IS QUARANTIO?
+──────────────────
+Quarantio is an AI-powered email compliance scanner for small and medium-sized
+businesses. It connects to a company's Gmail (Google Workspace or personal Gmail)
+via OAuth — no MX record changes, no SMTP relay, no IT configuration required.
+
+Every inbound email is evaluated by an AI model against the organisation's custom
+compliance policy. Emails are classified as HIGH, MEDIUM, LOW, or CLEAN:
+
+  HIGH   — Critical violation (fraud attempt, credential theft, data exfiltration,
+            MNPI leak, corporate espionage). Locked in quarantine. Only the org
+            owner can review and release or permanently erase.
+
+  MEDIUM — Policy breach with risk (unauthorised pricing disclosure, unannounced
+            roadmap shared externally, credentials shared with IT approval pending).
+            Held in the recipient's personal quarantine vault. They can self-release.
+
+  LOW    — Minor infraction (personal device use, vague pricing hint). Flagged in
+            audit log but delivered.
+
+  CLEAN  — Compliant. Delivered normally.
+
+The business owner (Owner role) receives a notification for every HIGH email and
+approves or rejects delivery with one click. Nobody except the intended recipient
+ever sees the body of a quarantined email — not even the owner.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ARCHITECTURE
+────────────
+Quarantio is a Go microservice stack deployed via Docker Compose.
+
+  front-end            React SPA (Vite). Serves the dashboard, landing page,
+                       auth flows, and billing. Talks directly to tenant-service.
+
+  tenant-service       Core API (port 8082). Handles authentication (JWT + API key),
+                       org/member management, billing, Gmail OAuth, email check
+                       routing, quarantine, audit log, and policy management.
+                       Database: PostgreSQL (pgvector).
+
+  ai-compliance-service  AI engine (port 8083). Receives check requests from
+                         tenant-service via RabbitMQ. Embeds the email with
+                         mistral-embed (1024-dim), performs vector similarity search
+                         against the org's policy chunks, then calls
+                         mistral-small-latest with a RAG prompt to produce a
+                         verdict (HIGH/MEDIUM/LOW/CLEAN), violations list, and
+                         reasoning. Stores audit records with pgvector embeddings
+                         for retention and search.
+
+  mail-service         Thin email sender. Wraps the Brevo API. Used for
+                       verification emails, invite emails, HIGH-risk alert
+                       notifications to org owners, and release-request alerts.
+
+  broker-service       HTTP gateway / load balancer (port 8080). Routes requests
+                       between services in the Docker network.
+
+  postgres             PostgreSQL 14 with the pgvector extension. Single database
+                       ("users") shared by tenant-service and ai-compliance-service.
+                       Stores tenants, users, OAuth tokens, policies, audit records,
+                       quarantine entries, billing state, invite tokens.
+
+  redis                Session/cache store.
+
+  rabbitmq             Message broker. ai-compliance-service consumes check requests
+                       from a topic exchange, enabling async evaluation without
+                       blocking the HTTP response.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GMAIL INTEGRATION (PUB/SUB)
+────────────────────────────
+When a user connects Gmail via OAuth:
+
+  1. The tenant-service calls gmail.users.watch() to register a Gmail Push
+     Notification subscription on the user's inbox.
+
+  2. Google Cloud Pub/Sub pushes a notification to the public webhook endpoint
+     (POST /v1/gmail/pubsub) within ~1 second of a new email arriving.
+
+  3. The webhook verifies the shared secret token, decodes the base64 Pub/Sub
+     message, and calls gmail.users.history.list() from the stored historyId
+     to fetch only new messages since the last scan.
+
+  4. Each new message is fetched, decoded, and sent to ai-compliance-service
+     for evaluation.
+
+  5. HIGH and MEDIUM results are stored in the quarantine table. The owner is
+     notified by email for every HIGH.
+
+  6. Gmail watch registrations expire after 7 days. A background goroutine
+     renews all active watches every 6 days. A 1-hour fallback scanner covers
+     users whose watch may have lapsed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AI COMPLIANCE ENGINE
+─────────────────────
+Model: Mistral (mistral-small-latest for classification, mistral-embed for
+       vector embeddings, 1024 dimensions)
+
+Flow:
+  1. Policy upload — the org uploads a plain-text compliance policy (e.g. rules
+     about financial data, credentials, customer PII, MNPI). The service chunks
+     the policy, embeds each chunk, and stores vectors in pgvector.
+
+  2. Email check — the email (from, to, subject, body) is embedded. A similarity
+     search retrieves the top-k most relevant policy chunks.
+
+  3. RAG prompt — the retrieved chunks + email are passed to mistral-small-latest
+     with a structured prompt asking for a verdict, list of violations, and
+     reasoning. The model must return one of: HIGH, MEDIUM, LOW, CLEAN.
+
+  4. Result — verdict + violations + reasoning stored in audit log. If HIGH or
+     MEDIUM, the email is quarantined.
+
+Benchmark accuracy (30-email test suite):
+  Overall: ~90%+
+  HIGH precision: 90.9%  recall: 90.9%  F1: 90.9%
+  MEDIUM precision: 83.3%  recall: 90.9%  F1: 87.0%
+  CLEAN precision: 100%  recall: 90%  F1: 94.7%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AUTHENTICATION & MULTI-TENANCY
+────────────────────────────────
+  - Registration: email + password or Google SSO
+  - Email verification required before accessing dashboard
+  - JWT access tokens (short-lived) + refresh tokens (httpOnly cookie)
+  - API key support for programmatic access (legacy / compliance-test runner)
+  - Two roles only: Owner and User
+      Owner — full dashboard access, sees all quarantine verdicts + metadata,
+              approves/rejects HIGH release requests, manages billing and members
+      User  — sees only their own quarantined emails (filtered by recipient address)
+  - Invite flow: owner invites member by email → magic link → member registers
+    and is attached to the org
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BILLING
+────────
+Powered by Stripe. Plans:
+
+  Free       $0/mo    1 mailbox, limited scans, 30-day retention
+  Starter    $29/mo   Up to 25 mailboxes, 500 scans/mo, 90-day retention
+                      14-day free trial (card collected upfront via Stripe Checkout,
+                      auto-charges after trial, cancel any time)
+  Pro        $99/mo   Up to 100 mailboxes, 2000 scans/mo, 1-year retention
+  Business   $299/mo  Unlimited mailboxes, unlimited scans, 3-year retention
+
+Upgrade/downgrade/cancel managed via Stripe Customer Portal (hosted by Stripe).
+Webhook endpoint (POST /v1/billing/webhook) handles subscription lifecycle events:
+checkout.session.completed, customer.subscription.updated, customer.subscription.deleted.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DATABASE MIGRATIONS
+────────────────────
+Migrations live in /db-migrations/ numbered 001–015:
+
+  001-010   Core schema: tenants, users, sessions, oauth_tokens, policies,
+            audit_log, quarantine, release_requests, invites
+  011       OAuth Gmail columns
+  012       last_scanned_at on oauth_tokens
+  013       email_verification table
+  014       invite_tokens table
+  015       history_id, watch_expires_at on oauth_tokens (Pub/Sub support)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+KEY API ENDPOINTS (tenant-service)
+────────────────────────────────────
+Public:
+  POST /auth/register                 Create account
+  POST /auth/login                    Login, returns JWT + sets refresh cookie
+  POST /auth/refresh                  Refresh access token
+  GET  /auth/verify                   Email verification link handler
+  POST /auth/setup-org                Complete org setup after verification
+  GET  /auth/google/login             Google SSO login start
+  POST /v1/billing/webhook            Stripe webhook (signature-verified)
+  POST /v1/gmail/pubsub               Gmail Pub/Sub push webhook (token-verified)
+
+Flex-auth (JWT or API key):
+  POST /v1/check                      Submit email for compliance check
+  POST /v1/policies                   Upload compliance policy (multipart)
+  GET  /v1/audit                      Fetch audit log
+  GET  /v1/quarantine                 Fetch quarantine entries
+  POST /v1/quarantine/{id}/review     Review a quarantined email
+  GET  /v1/export                     Export all data (GDPR)
+  DELETE /v1/data                     Delete all data
+
+JWT-only (dashboard):
+  GET  /v1/me                         Current user profile
+  GET  /v1/members                    List org members (owner only)
+  POST /v1/members                    Invite member (owner only)
+  GET  /v1/billing/status             Current plan and subscription state
+  POST /v1/billing/checkout           Create Stripe Checkout session
+  POST /v1/billing/portal             Open Stripe Customer Portal
+  GET  /v1/gmail/status               Gmail connection status
+  POST /v1/gmail/scan                 Manual inbox scan trigger
+  POST /v1/quarantine/{id}/release-request   User requests HIGH email release
+  POST /v1/release-requests/{id}/action      Owner approves or rejects (owner only)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ENVIRONMENT VARIABLES (tenant-service)
+────────────────────────────────────────
+  DSN                      PostgreSQL connection string
+  MISTRAL_API_KEY          Mistral API key
+  MAIL_SERVICE_URL         Internal URL for mail-service
+  COMPLIANCE_SVC_URL       Internal URL for ai-compliance-service
+  ENCRYPTION_KEY           AES key for encrypting OAuth tokens at rest
+  JWT_SECRET               HMAC secret for JWT signing
+  GOOGLE_CLIENT_ID         Google OAuth app client ID
+  GOOGLE_CLIENT_SECRET     Google OAuth app client secret
+  GOOGLE_REDIRECT_URI      OAuth callback URL
+  STRIPE_SECRET_KEY        Stripe secret key
+  STRIPE_WEBHOOK_SECRET    Stripe webhook signing secret
+  STRIPE_PRICE_STARTER     Stripe price ID for Starter plan
+  STRIPE_PRICE_PRO         Stripe price ID for Pro plan
+  STRIPE_PRICE_BUSINESS    Stripe price ID for Business plan
+  FRONTEND_URL             Public frontend URL (for CORS and redirects)
+  PUBSUB_TOPIC             GCP Pub/Sub topic name for Gmail push
+  PUBSUB_SECRET            Shared token verified on /v1/gmail/pubsub webhook
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMPLIANCE TEST HARNESS
+────────────────────────
+Location: /compliance-tests/
+
+  go run main.go -verbose              Auto-creates test org, uploads policy,
+                                       runs 30 labeled emails, prints report
+  go run main.go -api-key qto_xxx      Reuse existing org (skips org creation)
+  go run main.go -warmup 10            Wait 10s for embeddings before running
+
+Test suite: 30 emails across 4 classes
+  HIGH (11)   — CEO wire fraud, phishing, data exfiltration, insider trading,
+                AWS credential sharing, HR data leak, IP theft solicitation
+  MEDIUM (8)  — Pricing disclosure, unannounced roadmap, competitor analysis
+                shared without NDA, salary commitment via email
+  LOW (1)     — Company laptop personal use
+  CLEAN (10)  — Meeting invites, vendor invoices, support tickets, onboarding,
+                product announcements, NDA confirmations
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMMERCIAL STRATEGY
+────────────────────
+Target: SMBs 5–25 employees, especially regulated industries (finance, legal,
+        accounting, healthcare-adjacent). Sell top-down to the business owner.
+
+Positioning vs incumbents:
+  Abnormal Security / Sublime   $6–$8/mailbox/mo, $7k–$25k/yr minimum,
+                                enterprise sales cycle, months to onboard
+  Quarantio                     $29/mo flat for the whole company, self-serve,
+                                live in 2 minutes, no IT required
+
+GTM sequence:
+  1. Beta — Gettysburg College alumni network, local PA SMBs, 6 months free
+            for case study + testimonial
+  2. Content — build in public on X (tag @MistralAI), Reddit teardowns on
+               r/msp r/entrepreneur r/sysadmin, SEO content targeting
+               "email compliance small business"
+  3. Funding — Ben Franklin Technology Partners (PA, $5k–$15k non-dilutive),
+               Harrisburg University launchU
+
+Privacy: owners see quarantine metadata only. Nobody except the recipient
+ever sees email body content. HIGH review shows owner subject + sender, not body.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
