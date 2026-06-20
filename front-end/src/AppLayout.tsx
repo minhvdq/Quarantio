@@ -12,6 +12,7 @@ import { AuditLog } from './pages/AuditLog';
 import { Policies } from './pages/Policies';
 import { Team } from './pages/Team';
 import { Settings } from './pages/Settings';
+import { Plans } from './pages/Plans';
 import { useAuth } from './context/AuthContext';
 import { useToast } from './context/ToastContext';
 import { TENANT_URL } from './config';
@@ -28,6 +29,7 @@ const TAB_TITLES: Record<TabName, string> = {
   members: 'Team',
   settings: 'Settings',
   gmail: 'Gmail',
+  plans: 'Plans',
 };
 
 interface InviteInfo {
@@ -49,6 +51,19 @@ export function AppLayout({ initialTab = 'dashboard', inviteToken }: AppLayoutPr
 
   const [activeTab, setActiveTab] = useState<TabName>(initialTab);
   const [collapsed, setCollapsed] = useState(false);
+
+  // Redirect free users to Plans page on first load
+  React.useEffect(() => {
+    apiFetch(`${TENANT_URL}/v1/billing/status`).then(async (res) => {
+      if (res.ok) {
+        const d = await res.json();
+        if (d.data?.plan === 'free' && initialTab === 'dashboard') {
+          setActiveTab('plans');
+        }
+      }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [quarantineBadge, setQuarantineBadge] = useState(0);
   const [releasesBadge, setReleasesBadge] = useState(0);
@@ -134,7 +149,8 @@ export function AppLayout({ initialTab = 'dashboard', inviteToken }: AppLayoutPr
       case 'audit': return <AuditLog />;
       case 'policies': return <Policies />;
       case 'members': return <Team />;
-      case 'settings': return <Settings />;
+      case 'settings': return <Settings onGoToPlans={() => setActiveTab('plans')} />;
+      case 'plans': return <Plans onGoToSettings={() => setActiveTab('settings')} />;
       default: return <Dashboard onNavigateToQuarantine={() => setActiveTab('quarantine')} />;
     }
   };

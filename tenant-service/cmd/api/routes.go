@@ -53,6 +53,9 @@ func (app *Config) routes() http.Handler {
 	// Stripe webhook — public, signature-verified
 	mux.Post("/v1/billing/webhook", app.BillingWebhook)
 
+	// Gmail Pub/Sub push webhook — public, token-verified
+	mux.Post("/v1/gmail/pubsub", app.GmailPubSubWebhook)
+
 	// Legacy: org registration via API (creates tenant + API key)
 	mux.Post("/v1/organizations", app.RegisterOrganization)
 
@@ -102,7 +105,7 @@ func (app *Config) routes() http.Handler {
 		// Billing
 		r.Get("/v1/billing/status", app.BillingStatus)
 		r.With(RequireRole("owner")).Post("/v1/billing/checkout", app.BillingCheckout)
-		r.With(RequireRole("owner")).Post("/v1/billing/start-trial", app.StartTrial)
+		r.With(RequireRole("owner")).Post("/v1/billing/portal", app.BillingPortal)
 	})
 
 	return mux

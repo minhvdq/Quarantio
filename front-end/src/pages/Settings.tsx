@@ -5,7 +5,11 @@ import { Settings as SettingsType, BillingStatus, GmailStatus } from '../types';
 
 type AlertState = { ok: boolean; msg: string } | null;
 
-export function Settings() {
+interface SettingsProps {
+  onGoToPlans?: () => void;
+}
+
+export function Settings({ onGoToPlans }: SettingsProps) {
   const { apiFetch } = useApi();
   const [settings, setSettings] = useState<SettingsType>({ auto_deliver_low: true, retention_days: 90 });
   const [billing, setBilling] = useState<BillingStatus | null>(null);
@@ -74,16 +78,23 @@ export function Settings() {
     setDeleteAlert({ ok: res.ok, msg: res.ok ? 'All data erased.' : 'Erase failed — try again.' });
   };
 
-  const startTrial = async () => {
-    const res = await apiFetch(`${TENANT_URL}/v1/billing/start-trial`, { method: 'POST' });
-    if (res.ok) loadBilling();
-  };
-
-  const startCheckout = async () => {
+  const startCheckout = async (plan: string) => {
     try {
-      const res = await apiFetch(`${TENANT_URL}/v1/billing/checkout`, { method: 'POST' });
+      const res = await apiFetch(`${TENANT_URL}/v1/billing/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan }),
+      });
       const body = await res.json();
       if (body.data?.checkout_url) window.location.href = body.data.checkout_url;
+    } catch { /* ignore */ }
+  };
+
+  const openPortal = async () => {
+    try {
+      const res = await apiFetch(`${TENANT_URL}/v1/billing/portal`, { method: 'POST' });
+      const body = await res.json();
+      if (body.data?.portal_url) window.location.href = body.data.portal_url;
     } catch { /* ignore */ }
   };
 
@@ -98,6 +109,44 @@ export function Settings() {
     loadGmail();
   };
 
+  const PLANS = [
+    { key: 'starter', label: 'Starter', price: '$29/mo', desc: '1,000 scans/mo · 90-day retention · 5 members' },
+    { key: 'pro',     label: 'Pro',     price: '$99/mo', desc: '10,000 scans/mo · 1-year retention · 25 members' },
+    { key: 'business',label: 'Business',price: '$299/mo',desc: 'Unlimited scans · 3-year retention · Unlimited members' },
+  ];
+
+  const renderPlanCards = (currentPlan: string, hasSub: boolean) => (
+    <div className="grid gap-3 mt-3">
+      {PLANS.map((p) => {
+        const isCurrent = currentPlan === p.key;
+        const isUpgrade = PLANS.findIndex(x => x.key === p.key) > PLANS.findIndex(x => x.key === currentPlan);
+        return (
+          <div
+            key={p.key}
+            className={`flex items-center justify-between rounded-lg border px-4 py-3 ${isCurrent ? 'border-brand bg-green-50' : 'border-gray-100 bg-white'}`}
+          >
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-800">{p.label}</span>
+                <span className="text-sm text-gray-400">{p.price}</span>
+                {isCurrent && <span className="text-[10px] font-semibold bg-brand text-white px-2 py-0.5 rounded-full">Current</span>}
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">{p.desc}</p>
+            </div>
+            {!isCurrent && (
+              <button
+                onClick={() => hasSub ? openPortal() : startCheckout(p.key)}
+                className="text-xs font-medium text-brand border border-brand hover:bg-brand hover:text-white px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 ml-4"
+              >
+                {isUpgrade ? 'Upgrade' : 'Downgrade'}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
   const renderPlan = () => {
     if (!billing) return null;
     const plan = billing.plan;
@@ -109,58 +158,25 @@ export function Settings() {
             <span className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded-full">Free</span>
             <span className="text-sm text-gray-400">No active plan</span>
           </div>
-          <p className="text-sm text-gray-500 mb-3">Start your 14-day free trial. No credit card required.</p>
-          <button
-            onClick={startTrial}
-            className="bg-brand hover:bg-brand-dark text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-          >
-            Start Free Trial — 14 days
-          </button>
+          <p className="text-sm text-gray-500 mb-3">Get started with a plan to unlock email scanning and team features.</p>
+          {onGoToPlans && (
+            <button
+              onClick={onGoToPlans}
+              className="bg-brand hover:bg-brand-dark text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
+            >
+              Choose a Plan
+            </button>
+          )}
         </div>
       );
     }
 
-    if (plan === 'trial') {
-      let pct = 0;
-      let daysLeft = 0;
-      let endsAtStr = '';
-      if (billing.trial_ends_at) {
-        const ends = new Date(billing.trial_ends_at);
-        const now = new Date();
-        const totalMs = 14 * 24 * 60 * 60 * 1000;
-        const usedMs = now.getTime() - (ends.getTime() - totalMs);
-        pct = Math.min(100, Math.max(0, (usedMs / totalMs) * 100));
-        daysLeft = Math.max(0, Math.ceil((ends.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
-        endsAtStr = ends.toLocaleDateString();
-      }
-      return (
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 bg-brand text-white text-xs font-semibold rounded-full">Trial</span>
-              <span className="text-sm font-medium text-gray-700">Free Trial Active</span>
-            </div>
-            <span className="text-xs text-gray-400">Ends {endsAtStr}</span>
-          </div>
-          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-2">
-            <div className="h-full bg-brand rounded-full transition-all" style={{ width: `${pct}%` }} />
-          </div>
-          <p className="text-xs text-gray-400 mb-3">{daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining</p>
-          <button
-            onClick={startCheckout}
-            className="bg-brand hover:bg-brand-dark text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors"
-          >
-            Upgrade to Starter — $29/mo
-          </button>
-        </div>
-      );
-    }
-
-    // paid
+    // paid (starter / pro / business)
     const used = billing.scans_used || 0;
     const limit = billing.scans_limit;
     const scanPct = limit && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
     const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
+    const hasSub = billing.has_sub || false;
     return (
       <div>
         <div className="flex items-center gap-3 mb-3">
@@ -171,9 +187,16 @@ export function Settings() {
           <span>Scans this period</span>
           <span>{used} / {limit === -1 ? '∞' : limit}</span>
         </div>
-        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-3">
           <div className="h-full bg-brand rounded-full" style={{ width: `${scanPct}%` }} />
         </div>
+        {renderPlanCards(plan, hasSub)}
+        <button
+          onClick={openPortal}
+          className="mt-3 border border-gray-200 text-gray-600 hover:text-gray-900 hover:border-gray-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          Manage Billing
+        </button>
       </div>
     );
   };

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"time"
 
 	"tenant/data"
 
 	"github.com/stripe/stripe-go/v76"
 	stripeSession "github.com/stripe/stripe-go/v76/checkout/session"
 	"github.com/stripe/stripe-go/v76/customer"
+	billingportal "github.com/stripe/stripe-go/v76/billingportal/session"
 	"github.com/stripe/stripe-go/v76/webhook"
 )
 
@@ -40,9 +40,23 @@ func (app *Config) BillingStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /v1/billing/checkout — creates a Stripe Checkout session (owner only)
+// Body: {"plan": "starter"|"pro"|"business"}
 func (app *Config) BillingCheckout(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Context().Value(contextKeyTenantID).(string)
 	stripe.Key = app.StripeSecretKey
+
+	var req struct {
+		Plan string `json:"plan"`
+	}
+	if err := app.readJSON(w, r, &req); err != nil {
+		req.Plan = "starter"
+	}
+
+	priceID := app.priceIDForPlan(req.Plan)
+	if priceID == "" {
+		app.errorJSON(w, errors.New("invalid plan"), http.StatusBadRequest)
+		return
+	}
 
 	tenant, err := app.Store.GetTenantByID(r.Context(), tenantID)
 	if err != nil {
@@ -68,12 +82,20 @@ func (app *Config) BillingCheckout(w http.ResponseWriter, r *http.Request) {
 		Mode:     stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
-				Price:    stripe.String(app.StripePriceID),
+				Price:    stripe.String(priceID),
 				Quantity: stripe.Int64(1),
 			},
 		},
-		SuccessURL: stripe.String("http://localhost/#billing-success"),
-		CancelURL:  stripe.String("http://localhost/#billing-cancel"),
+		SuccessURL: stripe.String(app.FrontendURL + "/#billing-success"),
+		CancelURL:  stripe.String(app.FrontendURL + "/#billing-cancel"),
+	}
+
+	// First-time Starter subscribers get a 14-day free trial via Stripe.
+	// Card is collected upfront; Stripe auto-charges after the trial ends.
+	if req.Plan == "starter" && tenant.StripeSubID == "" {
+		params.SubscriptionData = &stripe.CheckoutSessionSubscriptionDataParams{
+			TrialPeriodDays: stripe.Int64(14),
+		}
 	}
 
 	sess, err := stripeSession.New(params)
@@ -86,6 +108,34 @@ func (app *Config) BillingCheckout(w http.ResponseWriter, r *http.Request) {
 		Error: false,
 		Data:  map[string]string{"checkout_url": sess.URL},
 	})
+}
+
+// priceIDForPlan maps a plan name to its Stripe price ID.
+func (app *Config) priceIDForPlan(plan string) string {
+	switch plan {
+	case "starter":
+		return app.StripePriceStarter
+	case "pro":
+		return app.StripePricePro
+	case "business":
+		return app.StripePriceBusiness
+	default:
+		return ""
+	}
+}
+
+// planForPriceID maps a Stripe price ID back to a plan name.
+func (app *Config) planForPriceID(priceID string) string {
+	switch priceID {
+	case app.StripePriceStarter:
+		return "starter"
+	case app.StripePricePro:
+		return "pro"
+	case app.StripePriceBusiness:
+		return "business"
+	default:
+		return "starter"
+	}
 }
 
 // POST /v1/billing/webhook — Stripe webhook (public, signature-verified)
@@ -118,8 +168,29 @@ func (app *Config) BillingWebhook(w http.ResponseWriter, r *http.Request) {
 		if sess.Customer != nil {
 			customerID = sess.Customer.ID
 		}
-		_ = app.Store.UpdateTenantStripeByCustomer(ctx, customerID, subID, "starter")
-		_ = app.Store.SyncPlanSettings(ctx, customerID, "starter")
+		// Detect plan from the first line item's price ID.
+		plan := "starter"
+		if sess.LineItems != nil && len(sess.LineItems.Data) > 0 && sess.LineItems.Data[0].Price != nil {
+			plan = app.planForPriceID(sess.LineItems.Data[0].Price.ID)
+		}
+		_ = app.Store.UpdateTenantStripeByCustomer(ctx, customerID, subID, plan)
+		_ = app.Store.SyncPlanSettings(ctx, customerID, plan)
+
+	case "customer.subscription.updated":
+		var sub stripe.Subscription
+		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
+			break
+		}
+		customerID := ""
+		if sub.Customer != nil {
+			customerID = sub.Customer.ID
+		}
+		plan := "starter"
+		if len(sub.Items.Data) > 0 && sub.Items.Data[0].Price != nil {
+			plan = app.planForPriceID(sub.Items.Data[0].Price.ID)
+		}
+		_ = app.Store.UpdateTenantStripeByCustomer(ctx, customerID, sub.ID, plan)
+		_ = app.Store.SyncPlanSettings(ctx, customerID, plan)
 
 	case "customer.subscription.deleted":
 		var sub stripe.Subscription
@@ -136,27 +207,33 @@ func (app *Config) BillingWebhook(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 }
-// POST /v1/billing/start-trial — starts the 14-day free trial (owner only, free plan only)
-func (app *Config) StartTrial(w http.ResponseWriter, r *http.Request) {
+// POST /v1/billing/portal — creates a Stripe Customer Portal session (owner only)
+func (app *Config) BillingPortal(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Context().Value(contextKeyTenantID).(string)
+	stripe.Key = app.StripeSecretKey
 
 	tenant, err := app.Store.GetTenantByID(r.Context(), tenantID)
 	if err != nil {
 		app.errorJSON(w, err, http.StatusInternalServerError)
 		return
 	}
-	if tenant.Plan != "free" {
-		app.errorJSON(w, errors.New("trial already used or already on a paid plan"), http.StatusBadRequest)
+	if tenant.StripeCustomerID == "" {
+		app.errorJSON(w, errors.New("no billing account found"), http.StatusBadRequest)
 		return
 	}
-	if err := app.Store.StartTrial(r.Context(), tenantID); err != nil {
+
+	sess, err := billingportal.New(&stripe.BillingPortalSessionParams{
+		Customer:  stripe.String(tenant.StripeCustomerID),
+		ReturnURL: stripe.String(app.FrontendURL + "/#billing-success"),
+	})
+	if err != nil {
 		app.errorJSON(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	trialEnds := time.Now().Add(14 * 24 * time.Hour)
 	app.writeJSON(w, http.StatusOK, jsonResponse{
-		Message: "14-day trial started",
-		Data:    map[string]any{"trial_ends_at": trialEnds.UTC().Format(time.RFC3339)},
+		Error: false,
+		Data:  map[string]string{"portal_url": sess.URL},
 	})
 }
+

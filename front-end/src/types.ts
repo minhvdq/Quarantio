@@ -49,6 +49,7 @@ export interface Settings {
 
 export interface BillingStatus {
   plan: 'free' | 'trial' | 'starter' | 'pro' | 'business';
+  has_sub?: boolean;
   trial_ends_at?: string;
   scans_used?: number;
   scans_limit?: number;

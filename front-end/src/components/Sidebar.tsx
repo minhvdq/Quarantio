@@ -10,7 +10,8 @@ export type TabName =
   | 'audit'
   | 'policies'
   | 'members'
-  | 'settings';
+  | 'settings'
+  | 'plans';
 
 export interface SidebarProps {
   activeTab: TabName;
