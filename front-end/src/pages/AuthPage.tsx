@@ -8,7 +8,7 @@ interface AuthPageProps {
 export function AuthPage({ inviteToken }: AuthPageProps) {
   const inviteSuffix = inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : '';
   const googleHref = `${TENANT_URL}/auth/google/login${inviteSuffix}`;
-  const microsoftHref = `${TENANT_URL}/auth/microsoft/login${inviteSuffix}`;
+  // const microsoftHref = `${TENANT_URL}/auth/microsoft/login${inviteSuffix}`;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
@@ -39,6 +39,7 @@ export function AuthPage({ inviteToken }: AuthPageProps) {
             <GoogleIcon />
             Continue with Google
           </a>
+          {/* Microsoft SSO — coming soon
           <a
             href={microsoftHref}
             className="flex items-center justify-center gap-3 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
@@ -47,6 +48,13 @@ export function AuthPage({ inviteToken }: AuthPageProps) {
             <MicrosoftIcon />
             Continue with Microsoft
           </a>
+          */}
+          <p className="text-[11px] text-gray-400 text-center m-0">
+            By signing in you agree to our{' '}
+            <a href="/privacy" className="text-gray-500 hover:text-gray-700" style={{ textDecoration: 'underline' }}>
+              Privacy Policy
+            </a>
+          </p>
         </div>
       </div>
     </div>

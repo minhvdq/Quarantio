@@ -1,18 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { AuthPage } from './pages/AuthPage';
 import { Landing } from './pages/Landing';
+import { Privacy } from './pages/Privacy';
 import { AppLayout } from './AppLayout';
 import { TabName } from './components/Sidebar';
 import { TENANT_URL } from './config';
 import { useToast } from './context/ToastContext';
 
 function MainApp() {
-  const { accessToken, storeAuth, logout } = useAuth();
+  const { accessToken, storeAuth } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
-  const location = useLocation();
   const [initialTab, setInitialTab] = useState<TabName>('dashboard');
   const [inviteToken, setInviteToken] = useState<string | undefined>();
   const [ready, setReady] = useState(false);
@@ -23,15 +22,12 @@ function MainApp() {
     const inv = searchParams.get('invite');
     if (inv) setInviteToken(inv);
 
-    // Handle SSO hash
     if (hash.startsWith('#sso-done?')) {
       const params = new URLSearchParams(hash.slice('#sso-done?'.length));
       const access = params.get('access');
       const refresh = params.get('refresh');
       if (access && refresh) {
         history.replaceState(null, '', window.location.pathname);
-        localStorage.setItem('gm_access', access);
-        localStorage.setItem('gm_refresh', refresh);
         fetch(`${TENANT_URL}/v1/me`, { headers: { Authorization: 'Bearer ' + access } })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
@@ -79,7 +75,9 @@ function MainApp() {
   if (!ready) return null;
 
   if (!accessToken) {
-    return <AuthPage inviteToken={inviteToken} />;
+    // Show AuthPage for invite flows, Landing for everyone else
+    if (inviteToken) return <AuthPage inviteToken={inviteToken} />;
+    return <Landing />;
   }
 
   return <AppLayout initialTab={initialTab} inviteToken={inviteToken} />;
@@ -88,7 +86,7 @@ function MainApp() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/landing" element={<Landing />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route path="*" element={<MainApp />} />
     </Routes>
   );
