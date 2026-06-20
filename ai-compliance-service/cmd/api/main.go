@@ -32,11 +32,15 @@ const (
 )
 
 type EmailMessage struct {
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Subject  string `json:"subject"`
-	Message  string `json:"message"`
-	TenantID string `json:"tenant_id,omitempty"`
+	From           string   `json:"from"`
+	To             string   `json:"to"`
+	Subject        string   `json:"subject"`
+	Message        string   `json:"message"`
+	TenantID       string   `json:"tenant_id,omitempty"`
+	UserID         string   `json:"user_id,omitempty"`
+	GmailMessageID string   `json:"gmail_message_id,omitempty"`
+	Violations     []string `json:"violations,omitempty"`
+	Reasoning      string   `json:"reasoning,omitempty"`
 }
 
 type RAGChunk struct {
@@ -95,6 +99,7 @@ type Config struct {
 	MistralKey     string
 	Rabbit         *amqp.Connection
 	MailServiceURL string
+	TenantSvcURL   string
 	Agent          AgentRunner
 	Embedder       Embedder
 }
@@ -227,6 +232,7 @@ func main() {
 	if mailURL == "" {
 		mailURL = "http://mail-service/send"
 	}
+	tenantSvcURL := os.Getenv("TENANT_SVC_URL")
 
 	conn := connectToDB()
 	if conn == nil {
@@ -270,6 +276,7 @@ func main() {
 		MistralKey:     mistralKey,
 		Rabbit:         rabbit,
 		MailServiceURL: mailURL,
+		TenantSvcURL:   tenantSvcURL,
 		Agent:          &agentAdapter{inner: agent},
 		Embedder:       embedder,
 	}

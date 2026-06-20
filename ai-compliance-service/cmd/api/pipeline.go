@@ -90,13 +90,19 @@ func (app *Config) processEmail(
 		}
 
 	case VerdictMedium:
-		payload, _ := json.Marshal(email)
+		msg := email
+		msg.Violations = decision.Violations
+		msg.Reasoning = decision.Reasoning
+		payload, _ := json.Marshal(msg)
 		if err := pub.Publish(ctx, payload, "email.quarantine"); err != nil {
 			return fmt.Errorf("publish quarantine: %w", err)
 		}
 
 	case VerdictHigh:
-		payload, _ := json.Marshal(email)
+		msg := email
+		msg.Violations = decision.Violations
+		msg.Reasoning = decision.Reasoning
+		payload, _ := json.Marshal(msg)
 		if err := pub.Publish(ctx, payload, "email.blocked"); err != nil {
 			return fmt.Errorf("publish blocked: %w", err)
 		}
@@ -248,17 +254,21 @@ func (app *Config) runQuarantineWorker(deliveries <-chan amqp.Delivery) {
 			_ = d.Nack(false, false)
 			continue
 		}
+		vJSON := violationsJSON(email.Violations)
 		if err := app.Store.InsertQuarantine(
 			context.Background(),
 			email.TenantID, email.From, email.To,
 			email.Subject, email.Message,
-			`[]`, "", "medium",
+			vJSON, email.Reasoning, "medium",
 		); err != nil {
 			log.Printf("[quarantine] insert error: %v — nacking", err)
 			_ = d.Nack(false, true)
 			continue
 		}
 		log.Printf("[quarantine] stored for review: from=%s subject=%q", email.From, email.Subject)
+		if email.GmailMessageID != "" && app.TenantSvcURL != "" {
+			go app.callGmailArchive(email.UserID, email.GmailMessageID, "MEDIUM", email.To)
+		}
 		_ = d.Ack(false)
 	}
 }
@@ -271,17 +281,51 @@ func (app *Config) runBlockedWorker(deliveries <-chan amqp.Delivery) {
 			_ = d.Nack(false, false)
 			continue
 		}
+		vJSON := violationsJSON(email.Violations)
 		if err := app.Store.InsertQuarantine(
 			context.Background(),
 			email.TenantID, email.From, email.To,
 			email.Subject, email.Message,
-			`[]`, "", "high",
+			vJSON, email.Reasoning, "high",
 		); err != nil {
 			log.Printf("[blocked] insert quarantine error: %v — nacking", err)
 			_ = d.Nack(false, true)
 			continue
 		}
 		log.Printf("[blocked] quarantined HIGH email: from=%s subject=%q", email.From, email.Subject)
+		if email.GmailMessageID != "" && app.TenantSvcURL != "" {
+			go app.callGmailArchive(email.UserID, email.GmailMessageID, "HIGH", email.To)
+		}
 		_ = d.Ack(false)
+	}
+}
+
+func violationsJSON(v []string) string {
+	if len(v) == 0 {
+		return `[]`
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func (app *Config) callGmailArchive(userID, gmailMessageID, verdict, to string) {
+	payload, _ := json.Marshal(map[string]string{
+		"user_id":          userID,
+		"gmail_message_id": gmailMessageID,
+		"verdict":          verdict,
+		"to":               to,
+	})
+	resp, err := http.Post(
+		app.TenantSvcURL+"/internal/gmail/archive",
+		"application/json",
+		bytes.NewBuffer(payload),
+	)
+	if err != nil {
+		log.Printf("[archive-callback] failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("[archive-callback] tenant-service returned %d", resp.StatusCode)
 	}
 }

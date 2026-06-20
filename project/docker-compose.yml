@@ -13,19 +13,6 @@ services:
       mode: replicated
       replicas: 1
 
-  broker-service:
-    build:
-      context: ./../broker-service
-      dockerfile: ./../broker-service/broker-service.dockerfile
-    restart: always
-    ports:
-      - "8080:8080"
-    deploy:
-      mode: replicated
-      replicas: 1
-    environment:
-      BROKER_URL: http://backend
-
   mail-service:
     build:
       context: ./../mail-service
@@ -69,6 +56,7 @@ services:
       MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET}"
       PUBSUB_TOPIC: "${PUBSUB_TOPIC}"
       PUBSUB_SECRET: "${PUBSUB_SECRET}"
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq"
 
   ai-compliance-service:
     build:
@@ -90,6 +78,7 @@ services:
       MISTRAL_API_KEY: "${MISTRAL_API_KEY}"
       MAIL_SERVICE_URL: "http://mail-service/send"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
+      TENANT_SVC_URL: "http://tenant-service:8082"
 
   postgres:
     image: 'pgvector/pgvector:pg14'

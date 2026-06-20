@@ -56,6 +56,9 @@ func (app *Config) routes() http.Handler {
 	// Gmail Pub/Sub push webhook — public, token-verified
 	mux.Post("/v1/gmail/pubsub", app.GmailPubSubWebhook)
 
+	// Internal callback from ai-compliance-service after async quarantine
+	mux.Post("/internal/gmail/archive", app.GmailArchiveCallback)
+
 	// Legacy: org registration via API (creates tenant + API key)
 	mux.Post("/v1/organizations", app.RegisterOrganization)
 

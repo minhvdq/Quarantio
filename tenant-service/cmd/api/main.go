@@ -15,6 +15,7 @@ import (
 	_ "github.com/jackc/pgconn"
 	_ "github.com/jackc/pgx/v4"
 	_ "github.com/jackc/pgx/v4/stdlib"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 const webPort = "8082"
@@ -118,22 +119,23 @@ type Embedder interface {
 }
 
 type Config struct {
-	DB                  *sql.DB
-	Store               Store
-	GeminiKey           string
-	MailServiceURL      string
-	ComplianceSvcURL    string
-	JWTSecret           string
-	GoogleClientID      string
-	GoogleClientSecret  string
-	GoogleRedirectURI   string
-	AppBaseURL          string
-	FrontendURL         string
-	StripeSecretKey      string
-	StripeWebhookSecret  string
-	StripePriceStarter   string
-	StripePricePro       string
-	StripePriceBusiness  string
+	DB                    *sql.DB
+	Store                 Store
+	Rabbit                *amqp.Connection
+	GeminiKey             string
+	MailServiceURL        string
+	ComplianceSvcURL      string
+	JWTSecret             string
+	GoogleClientID        string
+	GoogleClientSecret    string
+	GoogleRedirectURI     string
+	AppBaseURL            string
+	FrontendURL           string
+	StripeSecretKey       string
+	StripeWebhookSecret   string
+	StripePriceStarter    string
+	StripePricePro        string
+	StripePriceBusiness   string
 	MicrosoftClientID     string
 	MicrosoftClientSecret string
 	PubSubTopic           string
@@ -190,9 +192,15 @@ func main() {
 		frontendURL = "http://localhost"
 	}
 
+	rabbit := connectToRabbit(os.Getenv("RABBITMQ_URL"))
+	if rabbit != nil {
+		defer rabbit.Close()
+	}
+
 	app := Config{
 		DB:                    conn,
 		Store:                 data.NewWithEncryption(conn, encKeyBytes),
+		Rabbit:                rabbit,
 		GeminiKey:             mistralKey,
 		MailServiceURL:        mailURL,
 		ComplianceSvcURL:      complianceURL,

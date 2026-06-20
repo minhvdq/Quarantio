@@ -31,6 +31,7 @@ require (
 	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgtype v1.14.0 // indirect
+	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/stripe/stripe-go/v76 v76.25.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

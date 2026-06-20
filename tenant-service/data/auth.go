@@ -16,7 +16,7 @@ import (
 type User struct {
 	ID            string    `json:"id"`
 	Email         string    `json:"email"`
-	PasswordHash  string    `json:"-"`
+	PasswordHash  string    `json:"-"` // empty for SSO users (password_hash is NULL)
 	FirstName     string    `json:"first_name"`
 	LastName      string    `json:"last_name"`
 	EmailVerified bool      `json:"email_verified"`
@@ -75,8 +75,10 @@ func (m *Models) GetUserByEmail(ctx context.Context, email string) (*User, error
 
 	query := `SELECT id, email, password_hash, first_name, last_name, email_verified, created_at FROM users WHERE email = $1`
 	var u User
+	var ph sql.NullString
 	err := m.db.QueryRowContext(ctx, query, email).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FirstName, &u.LastName, &u.EmailVerified, &u.CreatedAt)
+		Scan(&u.ID, &u.Email, &ph, &u.FirstName, &u.LastName, &u.EmailVerified, &u.CreatedAt)
+	u.PasswordHash = ph.String
 	return &u, err
 }
 
