@@ -1,7 +1,7 @@
 import React from 'react';
 
 const EFFECTIVE_DATE = 'June 19, 2025';
-const CONTACT_EMAIL = 'privacy@quarantio.com';
+const CONTACT_EMAIL = 'quarantio8@gmail.com';
 
 export function Privacy() {
   return (
