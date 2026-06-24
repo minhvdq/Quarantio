@@ -1,4 +1,9 @@
+FROM golang:1.24-alpine AS builder
+WORKDIR /app
+COPY . .
+RUN CGO_ENABLED=0 go build -o complianceApp ./cmd/api
+
 FROM alpine:latest
 RUN mkdir /app
-COPY complianceApp /app
+COPY --from=builder /app/complianceApp /app
 CMD ["/app/complianceApp"]
