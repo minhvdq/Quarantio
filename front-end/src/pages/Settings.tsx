@@ -12,7 +12,7 @@ interface SettingsProps {
 
 export function Settings({ onGoToPlans }: SettingsProps) {
   const { apiFetch } = useApi();
-  const { role, logout } = useAuth();
+  const { role, logout, storeAuth } = useAuth();
   const isOwner = role === 'owner';
   const [settings, setSettings] = useState<SettingsType>({ auto_deliver_low: true, retention_days: 90 });
   const [billing, setBilling] = useState<BillingStatus | null>(null);
@@ -82,10 +82,23 @@ export function Settings({ onGoToPlans }: SettingsProps) {
   };
 
   const handleLeaveOrg = async () => {
-    if (!confirm('Leave this organization? You will lose access immediately.')) return;
+    if (!confirm('Leave this organization? You will be moved to a free personal account.')) return;
     const res = await apiFetch(`${TENANT_URL}/v1/me/membership`, { method: 'DELETE' });
     if (res.ok) {
-      logout();
+      const body = await res.json();
+      const d = body.data;
+      if (d?.access_token) {
+        storeAuth({
+          access_token: d.access_token,
+          refresh_token: d.refresh_token,
+          tenant_id: d.tenant_id,
+          role: d.role,
+          user: { email: d.user?.email || '', email_verified: d.user?.email_verified },
+        });
+        window.location.reload();
+      } else {
+        logout();
+      }
     } else {
       alert('Failed to leave organization. Please try again.');
     }

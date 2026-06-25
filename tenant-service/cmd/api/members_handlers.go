@@ -155,24 +155,61 @@ func (app *Config) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	app.writeJSON(w, http.StatusOK, jsonResponse{Message: "member removed"})
 }
 
-// DELETE /v1/me/membership — allows a non-owner to leave their organization.
+// DELETE /v1/me/membership — removes a non-owner from their org and provisions a
+// fresh free tenant so the user is never tenant-less. Returns new tokens.
 func (app *Config) LeaveOrganization(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.Context().Value(contextKeyTenantID).(string)
-	userID, _ := r.Context().Value(contextKeyUserID).(string)
-	role, _ := r.Context().Value(contextKeyRole).(string)
+	ctx := r.Context()
+	tenantID := ctx.Value(contextKeyTenantID).(string)
+	userID, _ := ctx.Value(contextKeyUserID).(string)
+	role, _ := ctx.Value(contextKeyRole).(string)
+	email, _ := ctx.Value(contextKeyEmail).(string)
 
 	if role == "owner" {
 		app.errorJSON(w, errors.New("owners cannot leave — transfer ownership or delete the organization first"), http.StatusForbidden)
 		return
 	}
 
-	if err := app.Store.RemoveUserFromOrg(r.Context(), userID, tenantID); err != nil {
+	if err := app.Store.RemoveUserFromOrg(ctx, userID, tenantID); err != nil {
 		app.errorJSON(w, fmt.Errorf("leave organization: %w", err), http.StatusInternalServerError)
 		return
 	}
-	// Invalidate all sessions so the JWT can no longer be used against a tenant.
-	_ = app.Store.DeleteAllUserSessions(r.Context(), userID)
-	app.writeJSON(w, http.StatusOK, jsonResponse{Message: "you have left the organization"})
+
+	// Provision a fresh free tenant so the user is never in a broken state.
+	newTenant, err := app.Store.CreateTenant(ctx, email)
+	if err != nil {
+		app.errorJSON(w, fmt.Errorf("create personal tenant: %w", err), http.StatusInternalServerError)
+		return
+	}
+	if err := app.Store.CreateOrgMember(ctx, userID, newTenant.ID, "owner", nil); err != nil {
+		app.errorJSON(w, fmt.Errorf("create org member: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Invalidate old sessions and issue fresh tokens for the new tenant.
+	_ = app.Store.DeleteAllUserSessions(ctx, userID)
+	refreshToken, err := app.Store.CreateSession(ctx, userID)
+	if err != nil {
+		app.errorJSON(w, fmt.Errorf("create session: %w", err), http.StatusInternalServerError)
+		return
+	}
+	accessToken, err := app.issueAccessToken(userID, newTenant.ID, "owner", email)
+	if err != nil {
+		app.errorJSON(w, fmt.Errorf("issue token: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	user, _ := app.Store.GetUserByID(ctx, userID)
+	app.writeJSON(w, http.StatusOK, jsonResponse{
+		Error:   false,
+		Message: "you have left the organization",
+		Data: authResponse{
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
+			TenantID:     newTenant.ID,
+			Role:         "owner",
+			User:         user,
+		},
+	})
 }
 
 // GET /v1/invites — list pending invites (owner only)
