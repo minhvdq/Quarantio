@@ -100,7 +100,7 @@ const navItems: NavItem[] = [
   {
     tab: 'audit',
     label: 'Audit Log',
-    ownerOnly: true,
+    ownerOnly: false,
     icon: (
       <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
         <line x1="18" y1="20" x2="18" y2="10"/>
