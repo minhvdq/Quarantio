@@ -368,24 +368,6 @@ func (app *Config) scanMessages(ctx context.Context, gmailSvc *gmailapi.Service,
 
 		result.Scanned++
 
-		if app.Rabbit != nil {
-			job := EmailJob{
-				From:           from,
-				To:             to,
-				Subject:        subject,
-				Message:        body,
-				TenantID:       tenantID,
-				UserID:         stored.UserID,
-				GmailMessageID: m.Id,
-			}
-			if err := app.publishEmailJob(ctx, job); err != nil {
-				log.Printf("[scan] publish job failed: %v — falling back to sync", err)
-				goto syncCheck
-			}
-			continue
-		}
-
-	syncCheck:
 		verdict, violations, reasoning, err := app.callComplianceCheck(ctx, tenantID, from, to, subject, body)
 		if err != nil {
 			continue
