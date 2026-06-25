@@ -13,6 +13,6 @@ export const BROKER_URL =
   'http://localhost:8080';
 
 export const TENANT_URL =
-  window.__CONFIG__?.TENANT_URL ??
-  import.meta.env.VITE_TENANT_URL ??
+  window.__CONFIG__?.TENANT_URL ||
+  import.meta.env.VITE_TENANT_URL ||
   'http://localhost:8082';

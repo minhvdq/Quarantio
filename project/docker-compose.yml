@@ -12,6 +12,8 @@ services:
     deploy:
       mode: replicated
       replicas: 1
+    environment:
+      TENANT_URL: "https://api.quarantio.app"
 
   mail-service:
     build:
