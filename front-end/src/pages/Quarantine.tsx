@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { TENANT_URL } from '../config';
 import { useApi } from '../hooks/useApi';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +21,13 @@ export function Quarantine({ onBadgeChange }: QuarantineProps) {
   const [reviewNote, setReviewNote] = useState('');
   const [reviewAlert, setReviewAlert] = useState<{ ok: boolean; msg: string } | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const resizeRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    resizeRef.current = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', resizeRef.current);
+    return () => { if (resizeRef.current) window.removeEventListener('resize', resizeRef.current); };
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,6 +102,17 @@ export function Quarantine({ onBadgeChange }: QuarantineProps) {
         </div>
       );
     }
+    const backButton = isMobile && (
+      <button
+        onClick={() => setSelectedId(null)}
+        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 px-4 py-2 border-b border-gray-100 flex-shrink-0"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        Back
+      </button>
+    );
 
     const isPending = selected.status === 'pending';
     const isHighNonOwner = selected.priority === 'high' && role !== 'owner';
@@ -102,6 +120,7 @@ export function Quarantine({ onBadgeChange }: QuarantineProps) {
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
+        {backButton}
         <div className="px-6 py-4 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-start gap-2 mb-3">
             <div className="mt-0.5 flex-shrink-0">
@@ -183,15 +202,18 @@ export function Quarantine({ onBadgeChange }: QuarantineProps) {
     );
   };
 
+  const showList = !isMobile || !selectedId;
+  const showDetail = !isMobile || !!selectedId;
+
   return (
     <div style={{ height: 'calc(100vh - 58px)', display: 'flex' }}>
       {/* List */}
       <div
         style={{
-          width: '340px',
+          width: isMobile ? '100%' : '340px',
           flexShrink: 0,
-          borderRight: '1px solid #f3f4f6',
-          display: 'flex',
+          borderRight: isMobile ? 'none' : '1px solid #f3f4f6',
+          display: showList ? 'flex' : 'none',
           flexDirection: 'column',
           overflow: 'hidden',
         }}
@@ -217,7 +239,7 @@ export function Quarantine({ onBadgeChange }: QuarantineProps) {
             return (
               <div
                 key={e.id}
-                onClick={() => { setSelectedId(e.id); setReviewNote(''); setReviewAlert(null); }}
+                onClick={() => { setSelectedId(e.id === selectedId && !isMobile ? null : e.id); setReviewNote(''); setReviewAlert(null); }}
                 className={`flex items-start gap-2.5 px-4 py-3 border-b border-gray-50 cursor-pointer ${isActive ? 'bg-green-50' : ''} ${e.priority === 'high' && e.status === 'pending' && !isActive ? 'bg-red-50/30' : ''} ${e.priority !== 'high' && e.status === 'pending' && !isActive ? 'bg-amber-50/30' : ''}`}
               >
                 <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${e.priority === 'high' ? 'bg-red-400' : 'bg-amber-400'}`} />
@@ -238,7 +260,7 @@ export function Quarantine({ onBadgeChange }: QuarantineProps) {
       </div>
 
       {/* Detail */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: showDetail ? 'flex' : 'none', flexDirection: 'column', overflow: 'hidden', width: isMobile ? '100%' : undefined }}>
         {renderDetail()}
       </div>
     </div>
