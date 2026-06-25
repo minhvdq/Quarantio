@@ -155,6 +155,10 @@ export function Landing() {
         .footer-links a{font-size:.8rem;color:#6b8c7a;transition:color .15s;}
         .footer-links a:hover{color:var(--g600);}
         .footer-copy{font-size:.78rem;color:#9cb8a8;}
+        .footer-social{display:flex;gap:14px;align-items:center;}
+        .footer-social a{display:flex;align-items:center;opacity:.7;transition:opacity .15s;}
+        .footer-social a:hover{opacity:1;}
+        .footer-social img{width:20px;height:20px;object-fit:contain;}
 
         @media(max-width:900px){
           .feat-grid{grid-template-columns:1fr 1fr;}
@@ -532,6 +536,17 @@ export function Landing() {
             <a href="/privacy">Privacy Policy</a>
             <a href="/terms">Terms of Service</a>
             <a href="mailto:quarantio8@gmail.com">Contact</a>
+          </div>
+          <div className="footer-social">
+            <a href="https://www.linkedin.com/company/quarantio" target="_blank" rel="noopener noreferrer">
+              <img src="/linkedin.png" alt="LinkedIn" />
+            </a>
+            <a href="https://www.instagram.com/quarantio" target="_blank" rel="noopener noreferrer">
+              <img src="/instagram.png" alt="Instagram" />
+            </a>
+            <a href="https://x.com/quarantio" target="_blank" rel="noopener noreferrer">
+              <img src="/twitter.png" alt="X" />
+            </a>
           </div>
           <p className="footer-copy">© {new Date().getFullYear()} Quarantio. All rights reserved.</p>
         </div>
