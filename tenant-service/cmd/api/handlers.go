@@ -213,14 +213,16 @@ func (app *Config) ReviewQuarantine(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Action == "release" {
-		if err := app.forwardToMailService(r.Context(), entry); err != nil {
-			app.errorJSON(w, fmt.Errorf("released but mail delivery failed: %w", err), http.StatusInternalServerError)
-			return
+		if entry.GmailMessageID != "" {
+			// Original Gmail message: restore INBOX label — preserves sender, headers, attachments.
+			go app.restoreGmailInbox(entry.GmailMessageID, entry.EmailTo)
+		} else {
+			// Non-Gmail email: re-send via mail service.
+			if err := app.forwardToMailService(r.Context(), entry); err != nil {
+				app.errorJSON(w, fmt.Errorf("released but mail delivery failed: %w", err), http.StatusInternalServerError)
+				return
+			}
 		}
-	}
-
-	if body.Action == "release" && entry.GmailMessageID != "" {
-		go app.restoreGmailInbox(entry.GmailMessageID, entry.EmailTo)
 	}
 
 	app.writeJSON(w, http.StatusOK, jsonResponse{
