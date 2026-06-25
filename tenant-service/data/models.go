@@ -139,7 +139,7 @@ func (m *Models) QueryAuditLog(ctx context.Context, tenantID, verdict string, li
 
 	query := `
 		SELECT id, email_from, email_to, email_subject, verdict,
-		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v WHERE jsonb_typeof(violations) = 'array'), '{}'),
 		       action_taken, created_at
 		FROM audit_log
 		WHERE tenant_id = $1
@@ -198,7 +198,7 @@ func (m *Models) QueryQuarantine(ctx context.Context, tenantID, status string) (
 
 	query := `
 		SELECT id, email_from, email_to, subject, body,
-		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v WHERE jsonb_typeof(violations) = 'array'), '{}'),
 		       COALESCE(reasoning, ''), status, COALESCE(priority, 'medium'), created_at
 		FROM quarantine
 		WHERE tenant_id = $1 AND ($2 = '' OR status = $2)
@@ -233,7 +233,7 @@ func (m *Models) GetQuarantineByID(ctx context.Context, id, tenantID string) (*Q
 
 	query := `
 		SELECT id, email_from, email_to, subject, body,
-		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v WHERE jsonb_typeof(violations) = 'array'), '{}'),
 		       COALESCE(reasoning, ''), status, COALESCE(priority, 'medium'), created_at,
 		       COALESCE(gmail_message_id, '')
 		FROM quarantine
@@ -381,7 +381,7 @@ func (m *Models) QueryUserQuarantine(ctx context.Context, tenantID, emailTo, sta
 
 	query := `
 		SELECT id, email_from, email_to, subject, body,
-		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v), '{}'),
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v WHERE jsonb_typeof(violations) = 'array'), '{}'),
 		       COALESCE(reasoning, ''), status, COALESCE(priority, 'medium'), created_at
 		FROM quarantine
 		WHERE tenant_id = $1 AND email_to = $2 AND ($3 = '' OR status = $3)
