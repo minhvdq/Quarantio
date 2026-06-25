@@ -81,6 +81,16 @@ export function Settings({ onGoToPlans }: SettingsProps) {
     setDeleteAlert({ ok: res.ok, msg: res.ok ? 'All data erased.' : 'Erase failed — try again.' });
   };
 
+  const handleLeaveOrg = async () => {
+    if (!confirm('Leave this organization? You will lose access immediately.')) return;
+    const res = await apiFetch(`${TENANT_URL}/v1/me/membership`, { method: 'DELETE' });
+    if (res.ok) {
+      window.location.href = '/';
+    } else {
+      alert('Failed to leave organization. Please try again.');
+    }
+  };
+
   const startCheckout = async (plan: string) => {
     try {
       const res = await apiFetch(`${TENANT_URL}/v1/billing/checkout`, {
@@ -175,9 +185,10 @@ export function Settings({ onGoToPlans }: SettingsProps) {
     }
 
     // paid (starter / pro / business)
-    const used = billing.scans_used || 0;
+    const teamUsed = billing.scans_used || 0;
+    const userUsed = billing.user_scans || 0;
     const limit = billing.scans_limit;
-    const scanPct = limit && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+    const scanPct = limit && limit > 0 ? Math.min(100, (teamUsed / limit) * 100) : 0;
     const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
     const hasSub = billing.has_sub || false;
     return (
@@ -186,13 +197,19 @@ export function Settings({ onGoToPlans }: SettingsProps) {
           <span className="px-2.5 py-1 bg-brand text-white text-xs font-semibold rounded-full">{planLabel}</span>
           <span className="text-sm font-medium text-gray-700">Active Subscription</span>
         </div>
-        <div className="flex justify-between text-xs text-gray-400 mb-1">
-          <span>Team scans this period</span>
-          <span>{used} / {limit === -1 ? '∞' : limit}</span>
-        </div>
-        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-3">
-          <div className="h-full bg-brand rounded-full" style={{ width: `${scanPct}%` }} />
-        </div>
+        {isOwner ? (
+          <>
+            <div className="flex justify-between text-xs text-gray-400 mb-1">
+              <span>Team scans this period</span>
+              <span>{teamUsed} / {limit === -1 ? '∞' : limit}</span>
+            </div>
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-3">
+              <div className="h-full bg-brand rounded-full" style={{ width: `${scanPct}%` }} />
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-gray-400 mb-3">Your scans this period: <span className="font-medium text-gray-600">{userUsed}</span></p>
+        )}
         {isOwner && renderPlanCards(plan, hasSub)}
         {isOwner && (
           <button
@@ -297,6 +314,20 @@ export function Settings({ onGoToPlans }: SettingsProps) {
         <div className={`mt-2 text-sm px-3 py-2 rounded-lg ${deleteAlert.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
           {deleteAlert.msg}
         </div>
+      )}
+
+      {!isOwner && (
+        <>
+          <hr className="my-6 border-gray-100" />
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">Membership</h3>
+          <button
+            onClick={handleLeaveOrg}
+            className="text-sm border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
+          >
+            Leave Organization
+          </button>
+          <p className="text-xs text-gray-400 mt-2">You will be removed from this team immediately.</p>
+        </>
       )}
 
       <hr className="my-6 border-gray-100" />

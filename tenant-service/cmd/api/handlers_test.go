@@ -41,6 +41,13 @@ func (m *mockStore) InsertPolicyEmbedding(_ context.Context, tenantID, filename 
 func (m *mockStore) QueryAuditLog(_ context.Context, tenantID, verdict string, limit int) ([]data.AuditEntry, error) {
 	return []data.AuditEntry{}, m.err
 }
+func (m *mockStore) QueryUserAuditLog(_ context.Context, tenantID, email, verdict string, limit int) ([]data.AuditEntry, error) {
+	return []data.AuditEntry{}, m.err
+}
+func (m *mockStore) IncrementUserScan(_ context.Context, userID string) error { return nil }
+func (m *mockStore) GetUserScanCount(_ context.Context, userID string) (int, error) {
+	return 0, m.err
+}
 
 func (m *mockStore) QueryQuarantine(_ context.Context, tenantID, status string) ([]data.QuarantineEntry, error) {
 	return []data.QuarantineEntry{}, m.err

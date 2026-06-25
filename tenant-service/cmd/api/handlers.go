@@ -129,11 +129,21 @@ func readBody(r *http.Request) (content []byte, filename string, err error) {
 
 func (app *Config) GetAuditLog(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Context().Value(contextKeyTenantID).(string)
+	role, _ := r.Context().Value(contextKeyRole).(string)
+	userEmail, _ := r.Context().Value(contextKeyEmail).(string)
 
 	verdict := r.URL.Query().Get("verdict")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-	entries, err := app.Store.QueryAuditLog(r.Context(), tenantID, verdict, limit)
+	var (
+		entries []data.AuditEntry
+		err     error
+	)
+	if role == "owner" {
+		entries, err = app.Store.QueryAuditLog(r.Context(), tenantID, verdict, limit)
+	} else {
+		entries, err = app.Store.QueryUserAuditLog(r.Context(), tenantID, userEmail, verdict, limit)
+	}
 	if err != nil {
 		app.errorJSON(w, err, http.StatusInternalServerError)
 		return
@@ -257,6 +267,10 @@ func (app *Config) CheckEmail(w http.ResponseWriter, r *http.Request) {
 	if !allowed {
 		app.errorJSON(w, fmt.Errorf("scan limit reached (%d/%d) on %s plan — upgrade to continue", used, limit, plan), http.StatusPaymentRequired)
 		return
+	}
+	userID, _ := r.Context().Value(contextKeyUserID).(string)
+	if userID != "" {
+		_ = app.Store.IncrementUserScan(r.Context(), userID)
 	}
 
 	payload, err := json.Marshal(map[string]string{

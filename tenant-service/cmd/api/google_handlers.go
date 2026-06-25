@@ -370,6 +370,7 @@ func (app *Config) scanMessages(ctx context.Context, gmailSvc *gmailapi.Service,
 		if err != nil || !allowed {
 			break // scan limit reached; stop processing remaining messages
 		}
+		_ = app.Store.IncrementUserScan(ctx, stored.UserID)
 		result.Scanned++
 
 		verdict, violations, reasoning, err := app.callComplianceCheck(ctx, tenantID, from, to, subject, body)

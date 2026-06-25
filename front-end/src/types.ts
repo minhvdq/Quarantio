@@ -52,6 +52,7 @@ export interface BillingStatus {
   has_sub?: boolean;
   trial_ends_at?: string;
   scans_used?: number;
+  user_scans?: number;
   scans_limit?: number;
 }
 

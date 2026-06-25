@@ -19,12 +19,15 @@ import (
 // GET /v1/billing/status
 func (app *Config) BillingStatus(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Context().Value(contextKeyTenantID).(string)
+	userID, _ := r.Context().Value(contextKeyUserID).(string)
 
 	tenant, err := app.Store.GetTenantByID(r.Context(), tenantID)
 	if err != nil {
 		app.errorJSON(w, err, http.StatusInternalServerError)
 		return
 	}
+
+	userScans, _ := app.Store.GetUserScanCount(r.Context(), userID)
 
 	limits := data.GetPlanLimits(tenant.Plan)
 	app.writeJSON(w, http.StatusOK, jsonResponse{
@@ -33,6 +36,7 @@ func (app *Config) BillingStatus(w http.ResponseWriter, r *http.Request) {
 			"plan":            tenant.Plan,
 			"has_sub":         tenant.StripeSubID != "",
 			"scans_used":      tenant.ScansThisPeriod,
+			"user_scans":      userScans,
 			"scans_limit":     limits.ScansPerMonth,
 			"period_reset_at": tenant.PeriodResetAt,
 			"trial_ends_at":   tenant.TrialEndsAt,

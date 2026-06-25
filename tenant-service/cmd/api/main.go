@@ -52,6 +52,7 @@ type Store interface {
 	// Embeddings / compliance
 	InsertPolicyEmbedding(ctx context.Context, tenantID, filename string, chunkIndex int, content string, embedding []float32) error
 	QueryAuditLog(ctx context.Context, tenantID, verdict string, limit int) ([]data.AuditEntry, error)
+	QueryUserAuditLog(ctx context.Context, tenantID, email, verdict string, limit int) ([]data.AuditEntry, error)
 	QueryQuarantine(ctx context.Context, tenantID, status string) ([]data.QuarantineEntry, error)
 	QueryUserQuarantine(ctx context.Context, tenantID, emailTo, status string) ([]data.QuarantineEntry, error)
 	GetQuarantineByID(ctx context.Context, id, tenantID string) (*data.QuarantineEntry, error)
@@ -78,6 +79,8 @@ type Store interface {
 
 	// Plan enforcement
 	CheckAndIncrementScan(ctx context.Context, tenantID string) (allowed bool, plan string, used, limit int, err error)
+	IncrementUserScan(ctx context.Context, userID string) error
+	GetUserScanCount(ctx context.Context, userID string) (int, error)
 	CheckAndIncrementMailbox(ctx context.Context, tenantID string) (allowed bool, plan string, err error)
 	DecrementMailboxCount(ctx context.Context, tenantID string) error
 

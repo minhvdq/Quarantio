@@ -155,6 +155,24 @@ func (app *Config) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	app.writeJSON(w, http.StatusOK, jsonResponse{Message: "member removed"})
 }
 
+// DELETE /v1/me/membership — allows a non-owner to leave their organization.
+func (app *Config) LeaveOrganization(w http.ResponseWriter, r *http.Request) {
+	tenantID := r.Context().Value(contextKeyTenantID).(string)
+	userID, _ := r.Context().Value(contextKeyUserID).(string)
+	role, _ := r.Context().Value(contextKeyRole).(string)
+
+	if role == "owner" {
+		app.errorJSON(w, errors.New("owners cannot leave — transfer ownership or delete the organization first"), http.StatusForbidden)
+		return
+	}
+
+	if err := app.Store.RemoveUserFromOrg(r.Context(), userID, tenantID); err != nil {
+		app.errorJSON(w, fmt.Errorf("leave organization: %w", err), http.StatusInternalServerError)
+		return
+	}
+	app.writeJSON(w, http.StatusOK, jsonResponse{Message: "you have left the organization"})
+}
+
 // GET /v1/invites — list pending invites (owner only)
 func (app *Config) GetPendingInvites(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.Context().Value(contextKeyTenantID).(string)

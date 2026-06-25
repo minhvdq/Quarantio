@@ -83,6 +83,7 @@ func (app *Config) routes() http.Handler {
 		r.Use(app.JWTMiddleware)
 
 		r.Get("/v1/me", app.Me)
+		r.Delete("/v1/me/membership", app.LeaveOrganization)
 
 		// Member management — owner only
 		r.With(RequireRole("owner")).Get("/v1/members", app.ListMembers)

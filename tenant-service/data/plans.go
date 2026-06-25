@@ -49,6 +49,29 @@ func (m *Models) CheckAndIncrementScan(ctx context.Context, tenantID string) (al
 	return used <= limits.ScansPerMonth, plan, used, limits.ScansPerMonth, nil
 }
 
+// IncrementUserScan increments the per-user scan counter (display only, not quota).
+func (m *Models) IncrementUserScan(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+	_, err := m.db.ExecContext(ctx, `
+		UPDATE users
+		SET scans_this_period = CASE WHEN period_reset_at < NOW() THEN 1 ELSE scans_this_period + 1 END,
+		    period_reset_at   = CASE WHEN period_reset_at < NOW() THEN NOW() + INTERVAL '1 month' ELSE period_reset_at END
+		WHERE id = $1`, userID)
+	return err
+}
+
+// GetUserScanCount returns the current period scan count for a user.
+func (m *Models) GetUserScanCount(ctx context.Context, userID string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+	var count int
+	err := m.db.QueryRowContext(ctx,
+		`SELECT CASE WHEN period_reset_at < NOW() THEN 0 ELSE scans_this_period END FROM users WHERE id = $1`,
+		userID).Scan(&count)
+	return count, err
+}
+
 // CheckAndIncrementMailbox checks the mailbox limit then increments if allowed.
 func (m *Models) CheckAndIncrementMailbox(ctx context.Context, tenantID string) (allowed bool, plan string, err error) {
 	row := m.db.QueryRowContext(ctx, `SELECT plan, mailbox_count FROM tenants WHERE id = $1`, tenantID)

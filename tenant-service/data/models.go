@@ -168,6 +168,47 @@ func (m *Models) QueryAuditLog(ctx context.Context, tenantID, verdict string, li
 	return entries, rows.Err()
 }
 
+// QueryUserAuditLog returns audit entries where the user's email appears in email_to.
+func (m *Models) QueryUserAuditLog(ctx context.Context, tenantID, email, verdict string, limit int) ([]AuditEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := `
+		SELECT id, email_from, email_to, email_subject, verdict,
+		       COALESCE((SELECT array_agg(v) FROM jsonb_array_elements_text(violations) v WHERE jsonb_typeof(violations) = 'array'), '{}'),
+		       action_taken, created_at
+		FROM audit_log
+		WHERE tenant_id = $1
+		  AND $2 = ANY(email_to)
+		  AND ($3 = '' OR verdict = $3)
+		ORDER BY created_at DESC
+		LIMIT $4
+	`
+	rows, err := m.db.QueryContext(ctx, query, tenantID, email, verdict, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(&e.ID, &e.EmailFrom, pq.Array(&e.EmailTo), &e.EmailSubject,
+			&e.Verdict, pq.Array(&e.Violations), &e.ActionTaken, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	if entries == nil {
+		entries = []AuditEntry{}
+	}
+	return entries, rows.Err()
+}
+
 // InsertPolicyEmbedding stores one chunk with its embedding vector.
 func (m *Models) InsertPolicyEmbedding(ctx context.Context, tenantID, filename string, chunkIndex int, content string, embedding []float32) error {
 	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
