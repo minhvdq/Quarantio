@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { TENANT_URL } from '../config';
 import { useApi } from '../hooks/useApi';
+import { useAuth } from '../context/AuthContext';
 import { QuarantineItem, AuditEntry, Member } from '../types';
 import { StatusPill } from '../components/Badge';
 import { fmtTimeShort } from '../utils/format';
@@ -11,6 +12,8 @@ interface DashboardProps {
 
 export function Dashboard({ onNavigateToQuarantine }: DashboardProps) {
   const { apiFetch } = useApi();
+  const { role } = useAuth();
+  const isOwner = role === 'owner';
   const [scansToday, setScansToday] = useState<number | null>(null);
   const [quarantineCount, setQuarantineCount] = useState<number | null>(null);
   const [pendingCount, setPendingCount] = useState<number | null>(null);
@@ -21,15 +24,18 @@ export function Dashboard({ onNavigateToQuarantine }: DashboardProps) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [qRes, auditRes, membersRes] = await Promise.all([
+      const [qRes, auditRes] = await Promise.all([
         apiFetch(`${TENANT_URL}/v1/quarantine?status=`),
         apiFetch(`${TENANT_URL}/v1/audit`),
-        apiFetch(`${TENANT_URL}/v1/members`),
       ]);
       const qData: QuarantineItem[] = qRes.ok ? ((await qRes.json()).data || []) : [];
       const auditData: AuditEntry[] = auditRes.ok ? ((await auditRes.json()).data || []) : [];
-      const membData = membersRes.ok ? await membersRes.json() : [];
-      const members: Member[] = Array.isArray(membData) ? membData : (membData.data || []);
+      let members: Member[] = [];
+      if (isOwner) {
+        const membersRes = await apiFetch(`${TENANT_URL}/v1/members`);
+        const membData = membersRes.ok ? await membersRes.json() : [];
+        members = Array.isArray(membData) ? membData : (membData.data || []);
+      }
 
       const pending = qData.filter((e) => e.status === 'pending').length;
       const todayStr = new Date().toLocaleDateString();
@@ -55,7 +61,7 @@ export function Dashboard({ onNavigateToQuarantine }: DashboardProps) {
     { label: 'Scans Today', value: scansToday, accent: 'border-t-brand' },
     { label: 'Quarantined', value: quarantineCount, accent: 'border-t-red-400' },
     { label: 'Pending Review', value: pendingCount, accent: 'border-t-amber-400' },
-    { label: 'Team Members', value: memberCount, accent: 'border-t-blue-400' },
+    ...(isOwner ? [{ label: 'Team Members', value: memberCount, accent: 'border-t-blue-400' }] : []),
   ];
 
   return (
