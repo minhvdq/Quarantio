@@ -38,6 +38,7 @@ type Store interface {
 	CreateSession(ctx context.Context, userID string) (string, error)
 	ValidateSession(ctx context.Context, rawToken string) (string, error)
 	DeleteSession(ctx context.Context, rawToken string) error
+	DeleteAllUserSessions(ctx context.Context, userID string) error
 
 	// Org / members
 	CreateTenantWithDomain(ctx context.Context, name, domain string) (*data.Tenant, error)

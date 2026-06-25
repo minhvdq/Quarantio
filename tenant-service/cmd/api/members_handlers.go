@@ -170,6 +170,8 @@ func (app *Config) LeaveOrganization(w http.ResponseWriter, r *http.Request) {
 		app.errorJSON(w, fmt.Errorf("leave organization: %w", err), http.StatusInternalServerError)
 		return
 	}
+	// Invalidate all sessions so the JWT can no longer be used against a tenant.
+	_ = app.Store.DeleteAllUserSessions(r.Context(), userID)
 	app.writeJSON(w, http.StatusOK, jsonResponse{Message: "you have left the organization"})
 }
 

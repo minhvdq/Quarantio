@@ -96,6 +96,7 @@ func (m *mockStore) CreateSession(_ context.Context, userID string) (string, err
 func (m *mockStore) ValidateSession(_ context.Context, rawToken string) (string, error) {
 	return "", m.err
 }
+func (m *mockStore) DeleteAllUserSessions(_ context.Context, userID string) error { return nil }
 func (m *mockStore) DeleteSession(_ context.Context, rawToken string) error {
 	return m.err
 }

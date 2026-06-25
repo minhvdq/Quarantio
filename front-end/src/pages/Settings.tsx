@@ -12,7 +12,7 @@ interface SettingsProps {
 
 export function Settings({ onGoToPlans }: SettingsProps) {
   const { apiFetch } = useApi();
-  const { role } = useAuth();
+  const { role, logout } = useAuth();
   const isOwner = role === 'owner';
   const [settings, setSettings] = useState<SettingsType>({ auto_deliver_low: true, retention_days: 90 });
   const [billing, setBilling] = useState<BillingStatus | null>(null);
@@ -85,7 +85,7 @@ export function Settings({ onGoToPlans }: SettingsProps) {
     if (!confirm('Leave this organization? You will lose access immediately.')) return;
     const res = await apiFetch(`${TENANT_URL}/v1/me/membership`, { method: 'DELETE' });
     if (res.ok) {
-      window.location.href = '/';
+      logout();
     } else {
       alert('Failed to leave organization. Please try again.');
     }

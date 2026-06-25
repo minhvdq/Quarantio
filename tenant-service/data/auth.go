@@ -272,6 +272,13 @@ func (m *Models) DeleteSession(ctx context.Context, rawToken string) error {
 	return err
 }
 
+func (m *Models) DeleteAllUserSessions(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+	_, err := m.db.ExecContext(ctx, `DELETE FROM user_sessions WHERE user_id = $1`, userID)
+	return err
+}
+
 func (m *Models) CreateReleaseRequest(ctx context.Context, quarantineID, tenantID, userID, note string) (*ReleaseRequest, error) {
 	ctx, cancel := context.WithTimeout(ctx, dbTimeout)
 	defer cancel()
