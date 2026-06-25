@@ -133,7 +133,6 @@ func (app *Config) processEmail(
 
 func (app *Config) sendToMailService(ctx context.Context, email EmailMessage, body string) error {
 	payload, err := json.Marshal(map[string]string{
-		"from":    email.From,
 		"to":      email.To,
 		"subject": email.Subject,
 		"message": body,
