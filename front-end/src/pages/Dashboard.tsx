@@ -14,6 +14,12 @@ export function Dashboard({ onNavigateToQuarantine }: DashboardProps) {
   const { apiFetch } = useApi();
   const { role } = useAuth();
   const isOwner = role === 'owner';
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
   const [scansToday, setScansToday] = useState<number | null>(null);
   const [quarantineCount, setQuarantineCount] = useState<number | null>(null);
   const [pendingCount, setPendingCount] = useState<number | null>(null);
@@ -66,7 +72,7 @@ export function Dashboard({ onNavigateToQuarantine }: DashboardProps) {
 
   return (
     <div className="p-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: `repeat(${isMobile ? Math.min(kpiCards.length, 2) : kpiCards.length}, 1fr)` }}>
         {kpiCards.map((k) => (
           <div
             key={k.label}

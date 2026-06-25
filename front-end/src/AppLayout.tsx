@@ -65,6 +65,12 @@ export function AppLayout({ initialTab = 'dashboard', inviteToken }: AppLayoutPr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  React.useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
   const [quarantineBadge, setQuarantineBadge] = useState(0);
   const [releasesBadge, setReleasesBadge] = useState(0);
 
@@ -171,7 +177,7 @@ export function AppLayout({ initialTab = 'dashboard', inviteToken }: AppLayoutPr
       />
       <div
         style={{
-          marginLeft: `${sidebarWidth}px`,
+          marginLeft: isMobile ? 0 : `${sidebarWidth}px`,
           minHeight: '100vh',
           display: 'flex',
           flexDirection: 'column',

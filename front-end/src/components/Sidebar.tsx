@@ -166,7 +166,8 @@ export function Sidebar({
   const mainItems = navItems.filter((i) => !i.ownerOnly);
   const mgmtItems = navItems.filter((i) => i.ownerOnly);
 
-  const sidebarWidth = collapsed ? '60px' : '232px';
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const sidebarWidth = collapsed && !isMobile ? '60px' : '232px';
 
   const overlayStyle: React.CSSProperties = {
     position: 'fixed',
@@ -189,6 +190,7 @@ export function Sidebar({
     zIndex: 200,
     transition: 'width 0.2s, transform 0.2s',
     overflow: 'hidden',
+    transform: isMobile && !mobileOpen ? 'translateX(-100%)' : 'translateX(0)',
   };
 
   const renderItem = (item: NavItem) => {
