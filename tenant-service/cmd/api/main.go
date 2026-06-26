@@ -145,6 +145,7 @@ type Config struct {
 	MicrosoftClientSecret string
 	PubSubTopic           string
 	PubSubSecret          string
+	InternalSecret        string
 }
 
 func main() {
@@ -224,6 +225,7 @@ func main() {
 		MicrosoftClientSecret: os.Getenv("MICROSOFT_CLIENT_SECRET"),
 		PubSubTopic:           os.Getenv("PUBSUB_TOPIC"),
 		PubSubSecret:          os.Getenv("PUBSUB_SECRET"),
+		InternalSecret:        os.Getenv("INTERNAL_SECRET"),
 	}
 
 	go app.startWatchRenewal()

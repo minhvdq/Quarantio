@@ -292,6 +292,9 @@ func (app *Config) CheckEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if app.InternalSecret != "" {
+		req.Header.Set("X-Internal-Secret", app.InternalSecret)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

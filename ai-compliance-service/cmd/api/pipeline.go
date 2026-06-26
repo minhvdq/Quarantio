@@ -216,6 +216,16 @@ func (app *Config) checkEmail(ctx context.Context, email EmailMessage, agent Age
 	return decision, nil
 }
 
+func (app *Config) requireInternalSecret(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if app.InternalSecret != "" && r.Header.Get("X-Internal-Secret") != app.InternalSecret {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // handleSyncCheck handles POST /internal/check — runs the compliance agent and returns the verdict.
 func (app *Config) handleSyncCheck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -314,11 +324,16 @@ func (app *Config) callGmailArchive(userID, gmailMessageID, verdict, to string) 
 		"verdict":          verdict,
 		"to":               to,
 	})
-	resp, err := http.Post(
-		app.TenantSvcURL+"/internal/gmail/archive",
-		"application/json",
-		bytes.NewBuffer(payload),
-	)
+	req, err := http.NewRequest("POST", app.TenantSvcURL+"/internal/gmail/archive", bytes.NewBuffer(payload))
+	if err != nil {
+		log.Printf("[archive-callback] build request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if app.InternalSecret != "" {
+		req.Header.Set("X-Internal-Secret", app.InternalSecret)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("[archive-callback] failed: %v", err)
 		return

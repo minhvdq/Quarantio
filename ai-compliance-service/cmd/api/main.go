@@ -94,14 +94,15 @@ type Publisher interface {
 }
 
 type Config struct {
-	DB             *sql.DB
-	Store          Store
-	MistralKey     string
-	Rabbit         *amqp.Connection
-	MailServiceURL string
-	TenantSvcURL   string
-	Agent          AgentRunner
-	Embedder       Embedder
+	DB               *sql.DB
+	Store            Store
+	MistralKey       string
+	Rabbit           *amqp.Connection
+	MailServiceURL   string
+	TenantSvcURL     string
+	InternalSecret   string
+	Agent            AgentRunner
+	Embedder         Embedder
 }
 
 // agentAdapter converts between main package types and compliance package types.
@@ -277,13 +278,14 @@ func main() {
 		Rabbit:         rabbit,
 		MailServiceURL: mailURL,
 		TenantSvcURL:   tenantSvcURL,
+		InternalSecret: os.Getenv("INTERNAL_SECRET"),
 		Agent:          &agentAdapter{inner: agent},
 		Embedder:       embedder,
 	}
 
 	go func() {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/internal/check", app.handleSyncCheck)
+		mux.HandleFunc("/internal/check", app.requireInternalSecret(app.handleSyncCheck))
 		log.Println("ai-compliance-service HTTP listening on :8083")
 		if err := http.ListenAndServe(":8083", mux); err != nil {
 			log.Printf("internal HTTP server error: %v", err)

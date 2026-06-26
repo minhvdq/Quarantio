@@ -11,6 +11,10 @@ import (
 // GmailArchiveCallback is called by ai-compliance-service after quarantining a Gmail message.
 // It removes the email from the user's inbox and sends a quarantine notification.
 func (app *Config) GmailArchiveCallback(w http.ResponseWriter, r *http.Request) {
+	if app.InternalSecret != "" && r.Header.Get("X-Internal-Secret") != app.InternalSecret {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var req struct {
 		UserID         string `json:"user_id"`
 		GmailMessageID string `json:"gmail_message_id"`

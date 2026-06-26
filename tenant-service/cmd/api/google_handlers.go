@@ -548,6 +548,9 @@ func (app *Config) callComplianceCheck(ctx context.Context, tenantID, from, to, 
 		return "", nil, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if app.InternalSecret != "" {
+		req.Header.Set("X-Internal-Secret", app.InternalSecret)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

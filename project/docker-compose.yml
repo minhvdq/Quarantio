@@ -60,6 +60,7 @@ services:
       PUBSUB_SECRET: "${PUBSUB_SECRET}"
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq"
       APP_BASE_URL: "https://api.quarantio.app"
+      INTERNAL_SECRET: "${INTERNAL_SECRET}"
 
   ai-compliance-service:
     build:
@@ -82,6 +83,7 @@ services:
       MAIL_SERVICE_URL: "http://mail-service/send"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY}"
       TENANT_SVC_URL: "http://tenant-service:8082"
+      INTERNAL_SECRET: "${INTERNAL_SECRET}"
 
   postgres:
     image: 'pgvector/pgvector:pg14'
