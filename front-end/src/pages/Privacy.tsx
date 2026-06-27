@@ -1,6 +1,6 @@
 import React from 'react';
 
-const EFFECTIVE_DATE = 'June 19, 2025';
+const EFFECTIVE_DATE = 'June 19, 2026';
 const CONTACT_EMAIL = 'quarantio8@gmail.com';
 
 export function Privacy() {
@@ -81,7 +81,7 @@ export function Privacy() {
             Quarantio ("we", "us", or "our") is an AI-powered email compliance platform that helps
             organizations scan, classify, and manage email communications for policy violations and
             security threats. This Privacy Policy explains how we collect, use, store, and protect
-            information when you use our service at <strong>quarantio.com</strong>.
+            information when you use our service at <strong>quarantio.app</strong>.
           </p>
         </div>
 
@@ -139,8 +139,9 @@ export function Privacy() {
           <p><strong>What we access</strong></p>
           <p>
             When you connect your Gmail account, Quarantio requests the{' '}
-            <code>https://www.googleapis.com/auth/gmail.readonly</code> scope. This allows us to read
-            your email messages for the sole purpose of scanning them for compliance policy violations.
+            <code>https://www.googleapis.com/auth/gmail.modify</code> scope. This allows us to read
+            your email messages for compliance scanning and to move quarantined messages out of your
+            Inbox (removing the INBOX label). We do not delete, send, or permanently modify any emails.
           </p>
 
           <p><strong>How we use Google data</strong></p>
