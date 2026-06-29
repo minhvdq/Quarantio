@@ -3,7 +3,6 @@ import React from 'react';
 export type TabName =
   | 'dashboard'
   | 'check'
-  | 'send'
   | 'quarantine'
   | 'gmail'
   | 'releases'
@@ -53,16 +52,6 @@ const navItems: NavItem[] = [
       <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
         <rect x="2" y="4" width="20" height="16" rx="2"/>
         <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
-      </svg>
-    ),
-  },
-  {
-    tab: 'send',
-    label: 'Send Email',
-    icon: (
-      <svg className="w-[18px] h-[18px] flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-        <path d="m22 2-7 20-4-9-9-4Z"/>
-        <path d="M22 2 11 13"/>
       </svg>
     ),
   },

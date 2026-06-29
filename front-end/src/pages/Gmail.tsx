@@ -73,7 +73,7 @@ export function Gmail() {
     : 'Never scanned.';
 
   return (
-    <div className="p-6 max-w-lg">
+    <div className="p-6 max-w-3xl">
       <div className="mb-5">
         <h2 className="text-base font-semibold text-gray-900">Gmail Inbox Scanner</h2>
         <p className="text-sm text-gray-400 mt-0.5">Connect Gmail and scan your inbox for compliance issues.</p>

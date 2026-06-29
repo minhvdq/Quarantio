@@ -4,7 +4,6 @@ import { Sidebar, TabName } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { Dashboard } from './pages/Dashboard';
 import { CheckEmail } from './pages/CheckEmail';
-import { SendEmail } from './pages/SendEmail';
 import { Quarantine } from './pages/Quarantine';
 import { Gmail } from './pages/Gmail';
 import { ReviewRequests } from './pages/ReviewRequests';
@@ -21,7 +20,6 @@ import { useApi } from './hooks/useApi';
 const TAB_TITLES: Record<TabName, string> = {
   dashboard: 'Dashboard',
   check: 'Check Email',
-  send: 'Send Email',
   quarantine: 'Quarantine',
   releases: 'Review Requests',
   audit: 'Audit Log',
@@ -148,7 +146,6 @@ export function AppLayout({ initialTab = 'dashboard', inviteToken }: AppLayoutPr
     switch (activeTab) {
       case 'dashboard': return <Dashboard onNavigateToQuarantine={() => setActiveTab('quarantine')} />;
       case 'check': return <CheckEmail />;
-      case 'send': return <SendEmail />;
       case 'quarantine': return <Quarantine onBadgeChange={handleQuarantineBadge} />;
       case 'gmail': return <Gmail />;
       case 'releases': return <ReviewRequests onBadgeChange={handleReleasesBadge} />;
